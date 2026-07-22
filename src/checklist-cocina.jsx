@@ -183,19 +183,29 @@ const MAX_AREAS_POR_PERSONA = 3;
 
 async function loadKey(key, fallback) {
   try {
-    const res = await window.storage.get(key, true);
-    if (!res) return fallback;
-    return JSON.parse(res.value);
+    const data = localStorage.getItem(key);
+
+    if (!data) {
+      return fallback;
+    }
+
+    return JSON.parse(data);
   } catch (e) {
+    console.error("Error cargando", key, e);
     return fallback;
   }
 }
+
 async function saveKey(key, value) {
   try {
-    const res = await window.storage.set(key, JSON.stringify(value), true);
-    return !!res;
+    localStorage.setItem(
+      key,
+      JSON.stringify(value)
+    );
+
+    return true;
   } catch (e) {
-    console.error("error guardando", key, e);
+    console.error("Error guardando", key, e);
     return false;
   }
 }
@@ -307,8 +317,7 @@ function PasswordModal({ usuario, onSuccess, onClose }) {
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState(null);
-  const [areas, setAreas] = useState([]);
+  const [config, setConfig] = useState(null); 
   const [eppItems, setEppItems] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
