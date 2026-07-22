@@ -317,7 +317,8 @@ function PasswordModal({ usuario, onSuccess, onClose }) {
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [config, setConfig] = useState(null); 
+  const [config, setConfig] = useState(null);
+   const [areas, setAreas] = useState([]);
   const [eppItems, setEppItems] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
