@@ -1224,6 +1224,8 @@ function AdminAreas({ areas, onAreas, primary }) {
   const [nuevaArea, setNuevaArea] = useState("");
   const [nuevoItem, setNuevoItem] = useState({});
   const [expand, setExpand] = useState(null);
+  const [editandoArea, setEditandoArea] = useState(null);
+const [editandoItem, setEditandoItem] = useState(null);
 
   const agregarArea = () => {
     if (!nuevaArea.trim()) return;
@@ -1245,6 +1247,22 @@ function AdminAreas({ areas, onAreas, primary }) {
   const renombrarArea = (areaId, nombre) => {
     onAreas(areas.map((a) => a.id === areaId ? { ...a, nombre } : a));
   };
+  const renombrarItem = (areaId, itemId, texto) => {
+  onAreas(
+    areas.map((a) =>
+      a.id === areaId
+        ? {
+            ...a,
+            items: a.items.map((i) =>
+              i.id === itemId
+                ? { ...i, texto }
+                : i
+            ),
+          }
+        : a
+    )
+  );
+};
 
   return (
     <div className="space-y-2">
@@ -1263,11 +1281,48 @@ function AdminAreas({ areas, onAreas, primary }) {
           {expand === a.id && (
             <div className="mt-2 space-y-1.5">
               {a.items.map((it) => (
-                <div key={it.id} className="flex items-center gap-2 text-sm bg-gray-50 rounded-md px-2 py-1.5">
-                  <span className="flex-1">{it.texto}</span>
-                  <button onClick={() => eliminarItem(a.id, it.id)} className="text-red-400"><Trash2 size={13} /></button>
-                </div>
-              ))}
+  <div
+    key={it.id}
+    className="flex items-center gap-2 text-sm bg-gray-50 rounded-md px-2 py-1.5"
+  >
+
+    {editandoItem === it.id ? (
+
+      <input
+        autoFocus
+        value={it.texto}
+        onChange={(e) =>
+          renombrarItem(a.id, it.id, e.target.value)
+        }
+        className="flex-1 border rounded-md px-2 py-1"
+      />
+
+    ) : (
+
+      <span className="flex-1">{it.texto}</span>
+
+    )}
+
+    <button
+      onClick={() =>
+        setEditandoItem(
+          editandoItem === it.id ? null : it.id
+        )
+      }
+      className="text-blue-500"
+    >
+      <Pencil size={13} />
+    </button>
+
+    <button
+      onClick={() => eliminarItem(a.id, it.id)}
+      className="text-red-400"
+    >
+      <Trash2 size={13} />
+    </button>
+
+  </div>
+))}
               <div className="flex gap-2">
                 <input value={nuevoItem[a.id] || ""} onChange={(e) => setNuevoItem((s) => ({ ...s, [a.id]: e.target.value }))}
                   placeholder="Nuevo ítem…" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
