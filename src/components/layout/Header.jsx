@@ -1,6 +1,6 @@
 import { LogOut, ClipboardCheck } from "lucide-react";
 
-export default function Header({
+export default function HeaderLegacy({
   config,
   primary,
   currentUser,
@@ -36,7 +36,7 @@ export default function Header({
               fontSize: "22px"
             }}
           >
-            {"ERP fenix"}
+            {"config. nombre"}
           </h1>
 
           <p className="text-xs text-white/80 truncate">
