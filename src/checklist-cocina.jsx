@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
+import TalentoHumanoView from "./TalentoHumano";
 import {
   ClipboardCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
   Settings, Users, BarChart3, ListChecks, LogOut, Plus, Trash2, Pencil,
   Lock, ChevronRight, Download, ShieldCheck, AlertCircle, UserPlus,
-  Palette, ImagePlus, X, Save, Building2, Check, Info, KeyRound
+  Palette, ImagePlus, X, Save, Building2, Check, Info, KeyRound,
+  BriefcaseBusiness
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -324,6 +326,11 @@ export default function App() {
   const [usuarios, setUsuarios] = useState([]);
   const [inspecciones, setInspecciones] = useState([]);
   const [hallazgos, setHallazgos] = useState([]);
+  const [hrColaboradores, setHrColaboradores] = useState([]);
+  const [hrEvaluaciones, setHrEvaluaciones] = useState([]);
+  const [hrPlanes, setHrPlanes] = useState([]);
+  const [hrCapacitaciones, setHrCapacitaciones] = useState([]);
+  const [hrCertificaciones, setHrCertificaciones] = useState([]);
 
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("inspeccion");
@@ -331,7 +338,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [c, a, e, p, u, i, h] = await Promise.all([
+      const [c, a, e, p, u, i, h, hc, he, hp, ht, hcert] = await Promise.all([
         loadKey("qc_config", null),
         loadKey("qc_areas", null),
         loadKey("qc_epp", null),
@@ -339,6 +346,11 @@ export default function App() {
         loadKey("qc_usuarios", []),
         loadKey("qc_inspecciones", []),
         loadKey("qc_hallazgos", []),
+        loadKey("hr_colaboradores", []),
+        loadKey("hr_evaluaciones", []),
+        loadKey("hr_planes_mejora", []),
+        loadKey("hr_capacitaciones", []),
+        loadKey("hr_certificaciones", []),
       ]);
       let finalAreas = a;
       if (!finalAreas) {
@@ -359,6 +371,11 @@ export default function App() {
       setUsuarios(u || []);
       setInspecciones(i || []);
       setHallazgos(h || []);
+      setHrColaboradores(hc || []);
+      setHrEvaluaciones(he || []);
+      setHrPlanes(hp || []);
+      setHrCapacitaciones(ht || []);
+      setHrCertificaciones(hcert || []);
       setLoading(false);
     })();
   }, []);
@@ -371,6 +388,11 @@ export default function App() {
     usuarios: async (v) => { setUsuarios(v); await saveKey("qc_usuarios", v); },
     inspecciones: async (v) => { setInspecciones(v); await saveKey("qc_inspecciones", v); },
     hallazgos: async (v) => { setHallazgos(v); await saveKey("qc_hallazgos", v); },
+    hrColaboradores: async (v) => { setHrColaboradores(v); await saveKey("hr_colaboradores", v); },
+    hrEvaluaciones: async (v) => { setHrEvaluaciones(v); await saveKey("hr_evaluaciones", v); },
+    hrPlanes: async (v) => { setHrPlanes(v); await saveKey("hr_planes_mejora", v); },
+    hrCapacitaciones: async (v) => { setHrCapacitaciones(v); await saveKey("hr_capacitaciones", v); },
+    hrCertificaciones: async (v) => { setHrCertificaciones(v); await saveKey("hr_certificaciones", v); },
   };
 
   const primary = config?.colorPrimario || "#1F2B3A";
@@ -451,6 +473,25 @@ export default function App() {
         )}
         {isAdmin && tab === "hallazgos" && (
           <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} />
+        )}
+        {isAdmin && tab === "talento" && (
+          <TalentoHumanoView
+            colaboradores={hrColaboradores}
+            evaluaciones={hrEvaluaciones}
+            planes={hrPlanes}
+            capacitaciones={hrCapacitaciones}
+            certificaciones={hrCertificaciones}
+            usuarios={usuarios}
+            areas={areas}
+            currentUser={currentUser}
+            primary={primary}
+            accent={accent}
+            onColaboradores={persist.hrColaboradores}
+            onEvaluaciones={persist.hrEvaluaciones}
+            onPlanes={persist.hrPlanes}
+            onCapacitaciones={persist.hrCapacitaciones}
+            onCertificaciones={persist.hrCertificaciones}
+          />
         )}
         {isAdmin && tab === "admin" && (
           <AdminView
@@ -599,6 +640,7 @@ function BottomNav({ tab, setTab, primary }) {
     { id: "historial", label: "Historial", icon: ClipboardCheck },
     { id: "analisis", label: "Análisis", icon: BarChart3 },
     { id: "hallazgos", label: "Hallazgos", icon: AlertCircle },
+    { id: "talento", label: "Talento", icon: BriefcaseBusiness },
     { id: "admin", label: "Admin", icon: Settings },
   ];
   return (

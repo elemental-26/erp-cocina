@@ -1,6 +1,6 @@
 import { LogOut, ClipboardCheck } from "lucide-react";
 
-export default function HeaderLegacy({
+export default function Header({
   config,
   primary,
   currentUser,
@@ -36,7 +36,7 @@ export default function HeaderLegacy({
               fontSize: "22px"
             }}
           >
-            {"config. nombre"}
+            {config.nombre}
           </h1>
 
           <p className="text-xs text-white/80 truncate">
