@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, LineChart, Line,
+  Tooltip, LineChart, Line, PieChart, Pie, Cell,
 } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -450,6 +450,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   const [saved, setSaved] = useState(null);
   const colaborador = colaboradores.find((c) => c.id === colaboradorId);
   const result = calculateResult(criteria);
+  
 
   const changeType = (next) => {
     setType(next);
@@ -492,6 +493,15 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   };
 
   const grouped = HR_EVALUATION_TEMPLATE.filter((section) => type === "desempeno" || !section.performanceOnly).map((section) => ({ ...section, criteria: criteria.filter((c) => c.group === section.group) }));
+  const deleteEvaluation = (id) => {
+  const confirmDelete = window.confirm(
+    "¿Eliminar esta evaluación?"  );
+
+  if (!confirmDelete) return;
+
+  onEvaluaciones(
+    evaluaciones.filter((e) => e.id !== id)  );
+  };
 
   return (
     <div className="space-y-3">
@@ -535,6 +545,79 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
         </button>
         {saved && <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">Evaluacion guardada para {saved.colaboradorNombre}. {saved.resultado.percentage < 75 ? "Se creo plan de mejora automatico." : ""}</p>}
       </div>
+        <div className="bg-white rounded-xl p-3 space-y-2">
+    <textarea value={generalNotes} 
+      onChange={(e) => setGeneralNotes(e.target.value)}
+      rows={3}
+      placeholder="Observaciones generales"
+      className="w-full border rounded-md px-3 py-2 text-sm"
+    />
+
+    <button 
+      onClick={save}
+      disabled={!colaborador}
+      className="w-full py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
+      style={{ background: primary }}
+    >
+      <Save size={16} /> Guardar evaluacion
+    </button>
+
+    {saved && 
+      <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">
+        Evaluacion guardada para {saved.colaboradorNombre}.
+        {saved.resultado.percentage < 75 ? " Se creo plan de mejora automatico." : ""}
+      </p>
+    }
+  </div>
+
+
+  {/* NUEVO HISTORIAL DE EVALUACIONES */}
+
+  <div className="bg-white rounded-xl p-3">
+
+    <h3 className="font-bold text-sm mb-2"
+        style={{ fontFamily: "Oswald, sans-serif" }}>
+      Historial de evaluaciones
+    </h3>
+
+    {evaluaciones.length === 0 && (
+      <p className="text-sm text-gray-500">
+        Sin evaluaciones registradas
+      </p>
+    )}
+
+    {evaluaciones.map((e) => (
+      <div 
+        key={e.id}
+        className="border rounded-md p-2 mb-2"
+      >
+
+        <div className="font-bold text-sm">
+          {e.colaboradorNombre}
+        </div>
+
+        <div className="text-xs">
+          {e.tipo} · {e.fecha}
+        </div>
+
+        <div className="text-sm mt-1">
+          Resultado: {e.resultado?.percentage}%
+        </div>
+
+        <button
+          onClick={() => deleteEvaluation(e.id)}
+          className="mt-2 px-3 py-1 rounded bg-red-500 text-white text-xs"
+        >
+          Eliminar
+        </button>
+
+      </div>
+    ))}
+
+  </div>
+
+
+</div>
     </div>
   );
 }
@@ -664,6 +747,36 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
     skills[c.text].count += 1;
   }));
   const skillRanking = Object.values(skills).map((s) => ({ text: s.text, avg: s.total / s.count })).sort((a, b) => a.avg - b.avg);
+  const compliance = evaluaciones.reduce(
+  (acc, e) => {
+    const value = e.resultado?.percentage || 0;
+
+    if (value >= 85) acc.cumple += 1;
+    else if (value >= 70) acc.riesgo += 1;
+    else acc.noCumple += 1;
+
+    return acc;
+  },
+  {
+    cumple: 0, riesgo: 0, noCumple: 0
+  }
+);
+
+
+const complianceData = [
+  {
+    name: "Cumple",
+    value: compliance.cumple
+  },
+  {
+    name: "Riesgo",
+    value: compliance.riesgo
+  },
+  {
+    name: "No cumple",
+    value: compliance.noCumple
+  }
+];
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -692,6 +805,22 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
           <button onClick={exportPdf} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><FileText size={15} /> PDF</button>
         </div>
       </div>
+      <div className="bg-white rounded-xl p-3">
+
+       <h3 className="font-bold text-sm mb-2" style={{fontFamily:"Oswald, sans-serif"}}> Estado de cumplimiento
+       </h3>
+       <div className="h-52">
+        <ResponsiveContainer width="100%" height="100%">
+      <PieChart>
+       <Pie data={complianceData} dataKey="value" nameKey="name" outerRadius={70} label> complianceData.map((entry,index)=>(
+      <Cell key={index}/>))}
+       </Pie>
+       <Tooltip/>
+       </PieChart>
+       </ResponsiveContainer>
+      </div>
+     </div>
+      
 
       <div className="grid sm:grid-cols-2 gap-3">
         <SimpleList title="Promedio por cargo" empty="Sin datos" items={aggregate("cargo").map((x) => `${x.nombre}: ${x.promedio}%`)} />
