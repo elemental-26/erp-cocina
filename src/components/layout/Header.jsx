@@ -1,5 +1,5 @@
 import { LogOut, ClipboardCheck } from "lucide-react";
-
+import { useTheme } from "../../theme/ThemeContext";
 export default function Header({
   config,
   primary,
@@ -9,6 +9,9 @@ export default function Header({
   compactMode,
   onCompactMode,
 }) {
+
+  const { fonts } = useTheme();
+  
   return (
     <header
       className="sticky top-0 z-30 flex items-center justify-between
@@ -30,19 +33,18 @@ export default function Header({
         <div className="min-w-0">
 
           <h1
-            className="font-bold truncate"
+            className={`${fonts.title} font-bold truncate`}
             style={{
-              fontFamily: "Oswald, sans-serif",
-              fontSize: "22px"
+              fontFamily: "Oswald, sans-serif"
             }}
           >
             {config.nombre}
           </h1>
 
-          <p className="text-xs text-white/80 truncate">
+          <p className={`${fonts.sm} text-white/80 truncate`}>
             ERP Institucional . Gestión Operacional
             </p>
-            <p className="text-[10px] text-white/60">
+            <p className={`${fonts.xs} text-white/60`}>
                 {currentUser.nombre}
                 {isAdmin && " • Administrador"}
           </p>
