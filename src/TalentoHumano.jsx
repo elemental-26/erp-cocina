@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import {
   AlertTriangle, Award, BarChart3, BriefcaseBusiness, CalendarClock,
-  ClipboardCheck, Download, FileText, GraduationCap, ImagePlus, Plus,
+  ClipboardCheck, Download, FileText, GraduationCap, ImagePlus, Pencil,
   Save, ShieldCheck, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import {
@@ -21,6 +21,7 @@ const HR_EVALUATION_TEMPLATE = [
 
 const HR_CERT_TYPES = ["Manipulacion de alimentos", "Examenes medicos", "Curso interno", "Certificacion obligatoria"];
 const HR_REVIEW_PERIODS = ["Mensual", "Trimestral", "Semestral", "Anual"];
+const PIE_COLORS = ["#1E7A46", "#B4750E", "#B5333D"];
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -37,6 +38,7 @@ function dateOnly(value) {
 
 function fmtFecha(iso) {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) +
     " · " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
@@ -109,6 +111,12 @@ function calculateResult(criteria) {
   return { total, max, percentage, level, recommendation };
 }
 
+function latestEvaluation(colaboradorId, evaluaciones) {
+  return evaluaciones
+    .filter((e) => e.colaboradorId === colaboradorId)
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+}
+
 function Badge({ children, color, bg }) {
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide" style={{ color, background: bg }}>
@@ -179,10 +187,7 @@ export default function TalentoHumanoView({
 
   const stats = useMemo(() => {
     const active = colaboradores.filter((c) => c.estado !== "Retirado");
-    const latest = active.map((c) => ({
-      c,
-      last: evaluaciones.filter((e) => e.colaboradorId === c.id).sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0],
-    }));
+    const latest = active.map((c) => ({ c, last: latestEvaluation(c.id, evaluaciones) }));
     const evaluated = latest.filter((x) => x.last).length;
     const average = evaluated ? Math.round(latest.reduce((sum, x) => sum + (x.last?.resultado?.percentage || 0), 0) / evaluated) : 0;
     return {
@@ -250,10 +255,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
 
   const trend = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).slice(-10).map((e) => ({ fecha: dateOnly(e.fecha), promedio: e.resultado?.percentage || 0 }));
   const expiring = certificaciones.filter((c) => daysUntil(c.vencimiento) <= 45).sort((a, b) => daysUntil(a.vencimiento) - daysUntil(b.vencimiento)).slice(0, 5);
-  const topPeople = colaboradores.map((c) => {
-    const last = evaluaciones.filter((e) => e.colaboradorId === c.id).sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
-    return { ...c, score: last?.resultado?.percentage || 0 };
-  }).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
+  const topPeople = colaboradores.map((c) => ({ ...c, score: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
 
   return (
     <div className="space-y-3">
@@ -325,6 +327,20 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
     setForm(blank);
   };
 
+  const startEdit = (colaborador) => {
+    setForm({
+      nombre: colaborador.nombre || "",
+      documento: colaborador.documento || "",
+      cargo: colaborador.cargo || "",
+      area: colaborador.area || "",
+      fechaIngreso: colaborador.fechaIngreso || "",
+      estado: colaborador.estado || "Activo",
+      supervisor: colaborador.supervisor || "",
+      foto: colaborador.foto || null,
+    });
+    setEditId(colaborador.id);
+  };
+
   const handlePhoto = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -365,7 +381,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
       </div>
 
       {colaboradores.map((c) => {
-        const last = evaluaciones.filter((e) => e.colaboradorId === c.id).sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
+        const last = latestEvaluation(c.id, evaluaciones);
         return (
           <div key={c.id} className="bg-white rounded-xl p-3 flex items-center gap-3">
             <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center flex-shrink-0">
@@ -376,13 +392,22 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
               <p className="text-xs text-gray-400 truncate">{c.cargo || "Sin cargo"} · {c.area || "Sin area"} · ID {c.id.slice(0, 8)}</p>
               <p className="text-xs text-gray-500">{last ? `Ultima evaluacion: ${last.resultado.percentage}%` : "Sin evaluaciones"}</p>
             </button>
-            <button onClick={() => { setForm({ ...c }); setEditId(c.id); }} className="text-gray-500"><Plus size={16} /></button>
-            <button onClick={() => confirm("Eliminar colaborador?") && onColaboradores(colaboradores.filter((x) => x.id !== c.id))} className="text-red-500"><Trash2 size={16} /></button>
+            <button onClick={() => startEdit(c)} className="text-gray-500"><Pencil size={16} /></button>
+            <button onClick={() => window.confirm("Eliminar colaborador?") && onColaboradores(colaboradores.filter((x) => x.id !== c.id))} className="text-red-500"><Trash2 size={16} /></button>
           </div>
         );
       })}
 
-      {detail && <CollaboratorDetail colaborador={detail} evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)} certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)} onClose={() => setDetail(null)} onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])} primary={primary} />}
+      {detail && (
+        <CollaboratorDetail
+          colaborador={detail}
+          evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)}
+          certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)}
+          onClose={() => setDetail(null)}
+          onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])}
+          primary={primary}
+        />
+      )}
     </div>
   );
 }
@@ -409,7 +434,7 @@ function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClos
       <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">
         {evaluaciones.length === 0 && <p className="text-xs text-gray-400">Sin evaluaciones registradas.</p>}
-        {evaluaciones.sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
+        {evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
           <div key={e.id} className="border rounded-lg p-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-bold">{e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad}`}</p>
@@ -450,7 +475,10 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   const [saved, setSaved] = useState(null);
   const colaborador = colaboradores.find((c) => c.id === colaboradorId);
   const result = calculateResult(criteria);
-  
+
+  const grouped = HR_EVALUATION_TEMPLATE
+    .filter((section) => type === "desempeno" || !section.performanceOnly)
+    .map((section) => ({ ...section, criteria: criteria.filter((c) => c.group === section.group) }));
 
   const changeType = (next) => {
     setType(next);
@@ -492,15 +520,10 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
     setGeneralNotes("");
   };
 
-  const grouped = HR_EVALUATION_TEMPLATE.filter((section) => type === "desempeno" || !section.performanceOnly).map((section) => ({ ...section, criteria: criteria.filter((c) => c.group === section.group) }));
   const deleteEvaluation = (id) => {
-  const confirmDelete = window.confirm(
-    "¿Eliminar esta evaluación?"  );
-
-  if (!confirmDelete) return;
-
-  onEvaluaciones(
-    evaluaciones.filter((e) => e.id !== id)  );
+    if (!window.confirm("Eliminar esta evaluacion?")) return;
+    onEvaluaciones(evaluaciones.filter((e) => e.id !== id));
+    onPlanes(planes.filter((p) => p.evaluationId !== id));
   };
 
   return (
@@ -533,7 +556,13 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
         <div key={section.group} className="bg-white rounded-xl p-3">
           <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
           <div className="space-y-2">
-            {section.criteria.map((c) => <CriterionRow key={c.id} criterion={c} onChange={(id, patch) => setCriteria(criteria.map((item) => item.id === id ? { ...item, ...patch } : item))} />)}
+            {section.criteria.map((c) => (
+              <CriterionRow
+                key={c.id}
+                criterion={c}
+                onChange={(id, patch) => setCriteria(criteria.map((item) => item.id === id ? { ...item, ...patch } : item))}
+              />
+            ))}
           </div>
         </div>
       ))}
@@ -545,79 +574,33 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
         </button>
         {saved && <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">Evaluacion guardada para {saved.colaboradorNombre}. {saved.resultado.percentage < 75 ? "Se creo plan de mejora automatico." : ""}</p>}
       </div>
-        <div className="bg-white rounded-xl p-3 space-y-2">
-    <textarea value={generalNotes} 
-      onChange={(e) => setGeneralNotes(e.target.value)}
-      rows={3}
-      placeholder="Observaciones generales"
-      className="w-full border rounded-md px-3 py-2 text-sm"
-    />
 
-    <button 
-      onClick={save}
-      disabled={!colaborador}
-      className="w-full py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
-      style={{ background: primary }}
-    >
-      <Save size={16} /> Guardar evaluacion
-    </button>
-
-    {saved && 
-      <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">
-        Evaluacion guardada para {saved.colaboradorNombre}.
-        {saved.resultado.percentage < 75 ? " Se creo plan de mejora automatico." : ""}
-      </p>
-    }
-  </div>
-
-
-  {/* NUEVO HISTORIAL DE EVALUACIONES */}
-
-  <div className="bg-white rounded-xl p-3">
-
-    <h3 className="font-bold text-sm mb-2"
-        style={{ fontFamily: "Oswald, sans-serif" }}>
-      Historial de evaluaciones
-    </h3>
-
-    {evaluaciones.length === 0 && (
-      <p className="text-sm text-gray-500">
-        Sin evaluaciones registradas
-      </p>
-    )}
-
-    {evaluaciones.map((e) => (
-      <div 
-        key={e.id}
-        className="border rounded-md p-2 mb-2"
-      >
-
-        <div className="font-bold text-sm">
-          {e.colaboradorNombre}
-        </div>
-
-        <div className="text-xs">
-          {e.tipo} · {e.fecha}
-        </div>
-
-        <div className="text-sm mt-1">
-          Resultado: {e.resultado?.percentage}%
-        </div>
-
-        <button
-          onClick={() => deleteEvaluation(e.id)}
-          className="mt-2 px-3 py-1 rounded bg-red-500 text-white text-xs"
-        >
-          Eliminar
-        </button>
-
+      <div className="bg-white rounded-xl p-3">
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h3>
+        {evaluaciones.length === 0 ? (
+          <p className="text-center text-sm text-gray-400 py-6">Sin evaluaciones registradas.</p>
+        ) : (
+          <div className="space-y-2">
+            {evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
+              <div key={e.id} className="border border-gray-100 rounded-lg p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm truncate">{e.colaboradorNombre}</p>
+                    <p className="text-xs text-gray-400">{e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad}`} · {fmtFecha(e.fecha)}</p>
+                    <p className="text-xs text-gray-500 mt-1">{e.resultado?.level} · {e.resultado?.recommendation}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
+                    <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
+                      <Trash2 size={12} /> Eliminar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    ))}
-
-  </div>
-
-
-</div>
     </div>
   );
 }
@@ -723,10 +706,7 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
 }
 
 function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, certificaciones, primary }) {
-  const latest = colaboradores.map((c) => {
-    const last = evaluaciones.filter((e) => e.colaboradorId === c.id).sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
-    return { ...c, promedio: last?.resultado?.percentage || 0 };
-  }).sort((a, b) => b.promedio - a.promedio);
+  const latest = colaboradores.map((c) => ({ ...c, promedio: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).sort((a, b) => b.promedio - a.promedio);
 
   const aggregate = (field) => {
     const map = {};
@@ -747,36 +727,20 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
     skills[c.text].count += 1;
   }));
   const skillRanking = Object.values(skills).map((s) => ({ text: s.text, avg: s.total / s.count })).sort((a, b) => a.avg - b.avg);
-  const compliance = evaluaciones.reduce(
-  (acc, e) => {
-    const value = e.resultado?.percentage || 0;
 
+  const compliance = evaluaciones.reduce((acc, e) => {
+    const value = e.resultado?.percentage || 0;
     if (value >= 85) acc.cumple += 1;
     else if (value >= 70) acc.riesgo += 1;
     else acc.noCumple += 1;
-
     return acc;
-  },
-  {
-    cumple: 0, riesgo: 0, noCumple: 0
-  }
-);
+  }, { cumple: 0, riesgo: 0, noCumple: 0 });
 
-
-const complianceData = [
-  {
-    name: "Cumple",
-    value: compliance.cumple
-  },
-  {
-    name: "Riesgo",
-    value: compliance.riesgo
-  },
-  {
-    name: "No cumple",
-    value: compliance.noCumple
-  }
-];
+  const complianceData = [
+    { name: "Cumple", value: compliance.cumple },
+    { name: "Riesgo", value: compliance.riesgo },
+    { name: "No cumple", value: compliance.noCumple },
+  ];
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -791,6 +755,7 @@ const complianceData = [
   const exportPdf = () => {
     const rows = latest.map((c) => `<tr><td>${c.nombre}</td><td>${c.cargo || ""}</td><td>${c.area || ""}</td><td>${c.promedio}%</td></tr>`).join("");
     const w = window.open("", "_blank");
+    if (!w) return;
     w.document.write(`<html><head><title>Reporte Talento Humano</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#1f2937}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px;font-size:12px}h1{font-size:22px}</style></head><body><h1>Reporte Gestion del Talento Humano</h1><p>Evaluaciones: ${evaluaciones.length} · Planes activos: ${planes.filter((p) => p.estado !== "Cerrado").length}</p><table><thead><tr><th>Colaborador</th><th>Cargo</th><th>Area</th><th>Promedio</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
     w.document.close();
     w.print();
@@ -805,22 +770,22 @@ const complianceData = [
           <button onClick={exportPdf} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><FileText size={15} /> PDF</button>
         </div>
       </div>
-      <div className="bg-white rounded-xl p-3">
 
-       <h3 className="font-bold text-sm mb-2" style={{fontFamily:"Oswald, sans-serif"}}> Estado de cumplimiento
-       </h3>
-       <div className="h-52">
-        <ResponsiveContainer width="100%" height="100%">
-      <PieChart>
-       <Pie data={complianceData} dataKey="value" nameKey="name" outerRadius={70} label> complianceData.map((entry,index)=>(
-      <Cell key={index}/>))}
-       </Pie>
-       <Tooltip/>
-       </PieChart>
-       </ResponsiveContainer>
+      <div className="bg-white rounded-xl p-3">
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Estado de cumplimiento</h3>
+        <div className="h-52">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={complianceData} dataKey="value" nameKey="name" outerRadius={70} label>
+                {complianceData.map((entry, index) => (
+                  <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
       </div>
-     </div>
-      
 
       <div className="grid sm:grid-cols-2 gap-3">
         <SimpleList title="Promedio por cargo" empty="Sin datos" items={aggregate("cargo").map((x) => `${x.nombre}: ${x.promedio}%`)} />
