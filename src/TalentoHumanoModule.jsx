@@ -329,7 +329,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
 }
 
 function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, usuarios, primary, onColaboradores, onCertificaciones }) {
-  const blank = { nombre: "", documento: "", cargo: "", area: areas[0]?.nombre || "", areas: areas[0]?.nombre ? [areas[0].nombre] : [], fechaIngreso: dateOnly(new Date()), estado: "Activo", supervisor: "", foto: null };
+  const blank = { nombre: "", documento: "", cargo: "", area: areas[0]?.nombre || "", areas: areas[0]?.nombre ? [areas[0].nombre] : [], fechaIngreso: dateOnly(new Date()), estado: "Activo", inactiveDate: "", supervisor: "", foto: null };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -373,6 +373,11 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
     const file = e.target.files[0];
     if (!file) return;
     setForm({ ...form, foto: await resizeImageToDataUrl(file, 320) });
+  };
+
+  const archived = colaboradores.filter((c) => !isActiveCollaborator(c));
+  const reactivate = (id) => {
+    onColaboradores(colaboradores.map((c) => c.id === id ? { ...c, estado: "Activo", inactiveDate: "" } : c));
   };
 
   return (
@@ -422,10 +427,51 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
               <p className="text-xs text-gray-500">{last ? `Ultima evaluacion: ${last.resultado.percentage}%` : "Sin evaluaciones"}</p>
             </button>
             <button onClick={() => startEdit(c)} className="text-gray-500"><Pencil size={16} /></button>
-            <button onClick={() => window.confirm("Eliminar colaborador?") && onColaboradores(colaboradores.filter((x) => x.id !== c.id))} className="text-red-500"><Trash2 size={16} /></button>
+            <button
+              onClick={() => window.confirm("Inactivar y archivar este colaborador?") && onColaboradores(colaboradores.map((x) => x.id === c.id ? { ...x, estado: "Inactivo", inactiveDate: dateOnly(new Date()) } : x))}
+              className="text-red-500"
+              title="Inactivar"
+            >
+              <Trash2 size={16} />
+            </button>
           </div>
         );
       })}
+
+      <div className="bg-white rounded-xl p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Archivados</h3>
+            <p className="text-xs text-gray-400">Colaboradores inactivos o retirados. Permanecen guardados con su historial.</p>
+          </div>
+          <Badge color="#5C6673" bg="#EAECEF">{archived.length}</Badge>
+        </div>
+
+        {archived.length === 0 ? (
+          <p className="text-xs text-gray-400 mt-3">No hay colaboradores archivados.</p>
+        ) : (
+          <div className="space-y-2 mt-3">
+            {archived.map((c) => (
+              <div key={c.id} className="border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-3">
+                <button onClick={() => setDetail(c)} className="text-left min-w-0 flex-1">
+                  <p className="font-bold text-sm truncate">{c.nombre}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {c.estado} · {c.inactiveDate ? `Desde ${c.inactiveDate}` : "Sin fecha"} · {c.cargo || c.rol || "Sin cargo"}
+                  </p>
+                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button onClick={() => startEdit(c)} className="px-2.5 py-1 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>
+                    Editar
+                  </button>
+                  <button onClick={() => reactivate(c.id)} className="px-2.5 py-1 rounded-md text-xs font-bold text-white" style={{ background: primary }}>
+                    Reactivar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {detail && (
         <CollaboratorDetail

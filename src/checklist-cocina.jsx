@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+﻿import React, { useState, useEffect, useMemo } from "react";
 import TalentoHumanoView from "./TalentoHumanoModule";
 import {
   ClipboardCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
@@ -14,22 +14,22 @@ import {
 import * as XLSX from "xlsx";
 
 /* =========================================================================
-   NOTA PARA FUTURA EXTENSIÓN (software institucional / mejora continua)
+   NOTA PARA FUTURA EXTENSIÃ“N (software institucional / mejora continua)
    -------------------------------------------------------------------------
-   Este archivo sigue un patrón repetible que puede usarse como base para
-   otros módulos de evaluación y mejora continua:
+   Este archivo sigue un patrÃ³n repetible que puede usarse como base para
+   otros mÃ³dulos de evaluaciÃ³n y mejora continua:
 
-   1. Un "modelo de datos" plano y con nombres genéricos (config, areas,
+   1. Un "modelo de datos" plano y con nombres genÃ©ricos (config, areas,
       personas, usuarios, inspecciones, hallazgos) guardado con
       window.storage (ver helpers loadKey/saveKey).
-   2. Un objeto `persist` en el componente raíz que centraliza cómo se
-      actualiza cada colección (estado + guardado).
-   3. Una vista por función del negocio (Inspección, Historial, Análisis,
-      Hallazgos) + un panel Admin con sub-pestañas CRUD (Áreas, EPP,
+   2. Un objeto `persist` en el componente raÃ­z que centraliza cÃ³mo se
+      actualiza cada colecciÃ³n (estado + guardado).
+   3. Una vista por funciÃ³n del negocio (InspecciÃ³n, Historial, AnÃ¡lisis,
+      Hallazgos) + un panel Admin con sub-pestaÃ±as CRUD (Ãreas, EPP,
       Personal, Usuarios).
-   Para agregar un nuevo módulo de evaluación (ej. auditorías de seguridad,
-   evaluación de proveedores, ciclos PHVA/Kaizen) se puede replicar el mismo
-   patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
+   Para agregar un nuevo mÃ³dulo de evaluaciÃ³n (ej. auditorÃ­as de seguridad,
+   evaluaciÃ³n de proveedores, ciclos PHVA/Kaizen) se puede replicar el mismo
+   patrÃ³n: nueva colecciÃ³n + nueva vista + nueva pestaÃ±a en BottomNav/Admin.
    ========================================================================= */
 
 const APP_VERSION = "1.2.0";
@@ -37,8 +37,8 @@ const APP_VERSION_DATE = "2026-07-31";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
   { version: "1.2.0", fecha: APP_VERSION_DATE, cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
-  { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
-  { version: "1.0.0", fecha: "2026-07-19", cambios: "Versión inicial: checklist por áreas, evaluación de EPP, historial exportable, análisis acumulado y seguimiento de hallazgos." },
+  { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseÃ±a y rol (administrador/usuario), hasta 3 Ã¡reas por persona del personal, mejoras en carga de logo, secciÃ³n Acerca de con control de versiÃ³n." },
+  { version: "1.0.0", fecha: "2026-07-19", cambios: "VersiÃ³n inicial: checklist por Ã¡reas, evaluaciÃ³n de EPP, historial exportable, anÃ¡lisis acumulado y seguimiento de hallazgos." },
 ];
 
 /* ---------------------------------- utilidades ---------------------------------- */
@@ -60,24 +60,24 @@ function todayISO() {
 function fmtFecha(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) +
-    " · " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    " Â· " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
 function resizeImageToDataUrl(file, maxDim = 320) {
   return new Promise((resolve, reject) => {
     if (!file.type || !file.type.startsWith("image/")) {
-      reject(new Error("Selecciona un archivo de imagen válido (PNG, JPG, etc.)."));
+      reject(new Error("Selecciona un archivo de imagen vÃ¡lido (PNG, JPG, etc.)."));
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      reject(new Error("La imagen es muy pesada (máximo 8MB)."));
+      reject(new Error("La imagen es muy pesada (mÃ¡ximo 8MB)."));
       return;
     }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error("El archivo no parece ser una imagen válida."));
+      img.onerror = () => reject(new Error("El archivo no parece ser una imagen vÃ¡lida."));
       img.onload = () => {
         let { width, height } = img;
         if (width > maxDim || height > maxDim) {
@@ -100,71 +100,71 @@ function resizeImageToDataUrl(file, maxDim = 320) {
 }
 
 const DEFAULT_AREAS_RAW = [
-  { nombre: "Recepción de mercancía", items: [
+  { nombre: "RecepciÃ³n de mercancÃ­a", items: [
     "Temperatura correcta de productos refrigerados/congelados",
-    "Revisión de fechas de caducidad y empaques",
-    "Vehículo de transporte en condiciones higiénicas",
-    "Documentación y trazabilidad de proveedor completa",
+    "RevisiÃ³n de fechas de caducidad y empaques",
+    "VehÃ­culo de transporte en condiciones higiÃ©nicas",
+    "DocumentaciÃ³n y trazabilidad de proveedor completa",
   ]},
-  { nombre: "Almacén seco", items: [
+  { nombre: "AlmacÃ©n seco", items: [
     "Productos rotulados y con sistema PEPS",
-    "Ausencia de plagas o signos de infestación",
+    "Ausencia de plagas o signos de infestaciÃ³n",
     "Productos separados del piso y la pared",
-    "Orden y limpieza general del área",
+    "Orden y limpieza general del Ã¡rea",
   ]},
-  { nombre: "Cámaras frías y refrigeración", items: [
-    "Temperatura de refrigeración dentro de rango (0-4°C)",
-    "Temperatura de congelación dentro de rango (-18°C o menor)",
+  { nombre: "CÃ¡maras frÃ­as y refrigeraciÃ³n", items: [
+    "Temperatura de refrigeraciÃ³n dentro de rango (0-4Â°C)",
+    "Temperatura de congelaciÃ³n dentro de rango (-18Â°C o menor)",
     "Alimentos crudos separados de cocidos/listos para consumo",
     "Empaques cerrados y rotulados con fecha",
   ]},
   { nombre: "Cocina caliente", items: [
-    "Temperatura de cocción verificada y registrada",
+    "Temperatura de cocciÃ³n verificada y registrada",
     "Superficies de trabajo limpias y desinfectadas",
-    "Utensilios y tablas de colores según tipo de alimento",
-    "Manejo correcto de aceites y equipos de cocción",
+    "Utensilios y tablas de colores segÃºn tipo de alimento",
+    "Manejo correcto de aceites y equipos de cocciÃ³n",
   ]},
-  { nombre: "Cocina fría", items: [
-    "Cadena de frío respetada en preparación",
+  { nombre: "Cocina frÃ­a", items: [
+    "Cadena de frÃ­o respetada en preparaciÃ³n",
     "Utensilios exclusivos para alimentos listos para consumo",
     "Superficies y equipos limpios y desinfectados",
-    "Ausencia de contaminación cruzada",
+    "Ausencia de contaminaciÃ³n cruzada",
   ]},
-  { nombre: "Panadería y repostería", items: [
+  { nombre: "PanaderÃ­a y reposterÃ­a", items: [
     "Insumos almacenados correctamente y rotulados",
     "Limpieza de hornos y equipos de mezclado",
     "Control de tiempos y temperaturas de horneado",
-    "Orden y limpieza del área de trabajo",
+    "Orden y limpieza del Ã¡rea de trabajo",
   ]},
   { nombre: "Zona de lavado (loza y ollas)", items: [
-    "Concentración correcta de detergente/desinfectante",
-    "Separación de áreas sucia y limpia",
+    "ConcentraciÃ³n correcta de detergente/desinfectante",
+    "SeparaciÃ³n de Ã¡reas sucia y limpia",
     "Loza y utensilios secos y almacenados correctamente",
-    "Drenajes limpios y sin obstrucción",
+    "Drenajes limpios y sin obstrucciÃ³n",
   ]},
-  { nombre: "Línea de servicio", items: [
-    "Temperatura de alimentos en exhibición dentro de rango",
+  { nombre: "LÃ­nea de servicio", items: [
+    "Temperatura de alimentos en exhibiciÃ³n dentro de rango",
     "Protectores/estornudaderos en buen estado",
-    "Utensilios de servicio limpios y exclusivos por preparación",
-    "Rotulación de alérgenos visible",
+    "Utensilios de servicio limpios y exclusivos por preparaciÃ³n",
+    "RotulaciÃ³n de alÃ©rgenos visible",
   ]},
   { nombre: "Comedor", items: [
     "Mesas y sillas limpias",
     "Pisos libres de residuos y derrames",
     "Botes de basura tapados y no saturados",
-    "Señalización de aforo y accesos despejada",
+    "SeÃ±alizaciÃ³n de aforo y accesos despejada",
   ]},
-  { nombre: "Baños y vestidores del personal", items: [
-    "Disponibilidad de jabón y toallas/secador",
+  { nombre: "BaÃ±os y vestidores del personal", items: [
+    "Disponibilidad de jabÃ³n y toallas/secador",
     "Limpieza general y sin malos olores",
     "Casilleros ordenados y en buen estado",
     "Insumos de higiene personal disponibles",
   ]},
   { nombre: "Manejo de residuos", items: [
-    "Separación de residuos orgánicos/inorgánicos",
+    "SeparaciÃ³n de residuos orgÃ¡nicos/inorgÃ¡nicos",
     "Contenedores tapados y en buen estado",
-    "Frecuencia de recolección adecuada",
-    "Área de residuos limpia y sin fugas",
+    "Frecuencia de recolecciÃ³n adecuada",
+    "Ãrea de residuos limpia y sin fugas",
   ]},
 ];
 
@@ -173,10 +173,10 @@ const DEFAULT_EPP_RAW = [
   "Cubrebocas",
   "Uniforme limpio y en buen estado",
   "Calzado cerrado antiderrapante",
-  "Guantes según la tarea",
+  "Guantes segÃºn la tarea",
   "Delantal",
-  "Manos y uñas limpias, sin esmalte",
-  "Sin joyería (anillos, pulseras, reloj, aretes)",
+  "Manos y uÃ±as limpias, sin esmalte",
+  "Sin joyerÃ­a (anillos, pulseras, reloj, aretes)",
   "Barba cubierta (si aplica)",
 ];
 
@@ -214,7 +214,7 @@ async function saveKey(key, value) {
   }
 }
 
-/* ---------------------------------- componentes pequeños ---------------------------------- */
+/* ---------------------------------- componentes pequeÃ±os ---------------------------------- */
 
 function StatusPicker({ value, onChange, compact }) {
   return (
@@ -293,26 +293,28 @@ function PasswordModal({ usuario, onSuccess, onClose }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(false);
   return (
-    <Modal title={`Ingreso · ${usuario.nombre}`} onClose={onClose}>
-      <p className="text-sm text-gray-500 mb-3">Ingresa tu contraseña para continuar.</p>
-      <input
-        type="password"
-        autoFocus
-        value={pw}
-        onChange={(e) => { setPw(e.target.value); setErr(false); }}
-        onKeyDown={(e) => { if (e.key === "Enter") { pw === usuario.password ? onSuccess() : setErr(true); } }}
-        className="w-full border rounded-md px-3 py-2 text-center text-lg tracking-widest"
-        style={{ borderColor: err ? "#B5333D" : "#D8DCE1" }}
-        placeholder="Contraseña"
-      />
-      {err && <p className="text-xs text-red-600 mt-1">Contraseña incorrecta, intenta de nuevo.</p>}
-      <button
-        onClick={() => { if (pw === usuario.password) onSuccess(); else setErr(true); }}
-        className="w-full mt-4 py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2"
-        style={{ background: "#1F2B3A" }}
-      >
-        <Lock size={16} /> Ingresar
-      </button>
+    <Modal title={`Ingreso · ${usuario.nombre}`} onClose={onClose} wide>
+      <div className="max-w-lg mx-auto py-2">
+        <p className="text-base text-gray-600 mb-4 text-center">Ingresa tu contraseña para continuar.</p>
+        <input
+          type="password"
+          autoFocus
+          value={pw}
+          onChange={(e) => { setPw(e.target.value); setErr(false); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { pw === usuario.password ? onSuccess() : setErr(true); } }}
+          className="w-full border-2 rounded-xl px-4 py-4 text-center text-2xl tracking-widest"
+          style={{ borderColor: err ? "#B5333D" : "#D8DCE1" }}
+          placeholder="Contraseña"
+        />
+        {err && <p className="text-sm text-red-600 mt-2 text-center">Contraseña incorrecta, intenta de nuevo.</p>}
+        <button
+          onClick={() => { if (pw === usuario.password) onSuccess(); else setErr(true); }}
+          className="w-full mt-5 py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 text-base"
+          style={{ background: "#1F2B3A" }}
+        >
+          <Lock size={18} /> Ingresar
+        </button>
+      </div>
     </Modal>
   );
 }
@@ -366,7 +368,7 @@ export default function App() {
         finalEpp = DEFAULT_EPP_RAW.map((t) => ({ id: genId(), texto: t }));
         saveKey("qc_epp", finalEpp);
       }
-      // migración: personas antiguas con "area" (texto) -> "areas" (arreglo)
+      // migraciÃ³n: personas antiguas con "area" (texto) -> "areas" (arreglo)
       const finalPersonas = (p || []).map((per) => per.areas ? per : { ...per, areas: per.area ? [per.area] : [] });
       const migratedColaboradores = (hc?.length ? hc : finalPersonas.map((per) => ({
         ...per,
@@ -437,7 +439,7 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-[#F1F3F4]">
         <div className="text-center">
           <ClipboardCheck className="mx-auto mb-2 animate-pulse" size={36} color="#1F2B3A" />
-          <p className="text-sm text-gray-500">Cargando…</p>
+          <p className="text-sm text-gray-500">Cargandoâ€¦</p>
         </div>
       </div>
     );
@@ -575,7 +577,7 @@ function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome
         )}
         <div className="min-w-0">
           <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
-          <p className="text-[11px] text-white/70 truncate">{moduleLabel} · {currentUser.nombre} {isAdmin && "· Admin"}</p>
+          <p className="text-[11px] text-white/70 truncate">{moduleLabel} Â· {currentUser.nombre} {isAdmin && "Â· Admin"}</p>
         </div>
       </div>
       <div className="flex items-center gap-1">
@@ -727,7 +729,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Users size={12} /> Responsable del area</label>
           <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
             <option value="">Seleccionar responsable</option>
-            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.cargo || p.rol || "Personal"}</option>)}
+            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} Â· {p.cargo || p.rol || "Personal"}</option>)}
           </select>
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-gray-400">{answeredCount}/{totalItems} items evaluados</p>
@@ -787,8 +789,8 @@ function SetupWizard({ onDone }) {
 
   const submit = () => {
     if (!adminNombre.trim()) return setError("Escribe el nombre del administrador.");
-    if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
-    if (pw !== pw2) return setError("Las contraseñas no coinciden.");
+    if (pw.length < 4) return setError("La contraseÃ±a debe tener al menos 4 caracteres.");
+    if (pw !== pw2) return setError("Las contraseÃ±as no coinciden.");
     onDone(
       { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 100, fontFamily: "Inter, sans-serif" },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
@@ -801,7 +803,7 @@ function SetupWizard({ onDone }) {
       <div className="bg-white rounded-xl w-full max-w-sm p-6">
         <div className="flex items-center gap-2 mb-1">
           <ClipboardCheck color="#F2622E" size={26} />
-          <h1 className="text-lg font-black" style={{ fontFamily: "Oswald, sans-serif" }}>Configuración inicial</h1>
+          <h1 className="text-lg font-black" style={{ fontFamily: "Oswald, sans-serif" }}>ConfiguraciÃ³n inicial</h1>
         </div>
         <p className="text-sm text-gray-500 mb-4">Define el nombre de tu checklist y crea la cuenta de administrador.</p>
 
@@ -811,10 +813,10 @@ function SetupWizard({ onDone }) {
         <label className="text-xs font-bold text-gray-500 uppercase">Nombre del administrador</label>
         <input value={adminNombre} onChange={(e) => setAdminNombre(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-3 mt-1" placeholder="Ej. Jefe de cocina" />
 
-        <label className="text-xs font-bold text-gray-500 uppercase">Crear contraseña (mín. 4 caracteres)</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Crear contraseÃ±a (mÃ­n. 4 caracteres)</label>
         <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-3 mt-1" />
 
-        <label className="text-xs font-bold text-gray-500 uppercase">Confirmar contraseña</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Confirmar contraseÃ±a</label>
         <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-1 mt-1" />
 
         {error && (
@@ -825,7 +827,7 @@ function SetupWizard({ onDone }) {
           Crear checklist
         </button>
 
-        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} · v{APP_VERSION}</p>
+        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} Â· v{APP_VERSION}</p>
       </div>
     </div>
   );
@@ -873,7 +875,7 @@ function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
           ))}
         </div>
 
-        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} · v{APP_VERSION}</p>
+        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} Â· v{APP_VERSION}</p>
       </div>
       {children}
     </div>
@@ -893,7 +895,7 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
         )}
         <div className="min-w-0">
           <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
-          <p className="text-[11px] text-white/60 truncate">{currentUser.nombre} {isAdmin && "· Admin"}</p>
+          <p className="text-[11px] text-white/60 truncate">{currentUser.nombre} {isAdmin && "Â· Admin"}</p>
         </div>
       </div>
       <button onClick={onLogout} className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"><LogOut size={18} /></button>
@@ -903,9 +905,9 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
 
 function BottomNav({ tab, setTab, primary }) {
   const items = [
-    { id: "inspeccion", label: "Inspección", icon: ListChecks },
+    { id: "inspeccion", label: "InspecciÃ³n", icon: ListChecks },
     { id: "historial", label: "Historial", icon: ClipboardCheck },
-    { id: "analisis", label: "Análisis", icon: BarChart3 },
+    { id: "analisis", label: "AnÃ¡lisis", icon: BarChart3 },
     { id: "hallazgos", label: "Hallazgos", icon: AlertCircle },
   ];
   return (
@@ -924,7 +926,7 @@ function BottomNav({ tab, setTab, primary }) {
   );
 }
 
-/* ---------------------------------- inspección ---------------------------------- */
+/* ---------------------------------- inspecciÃ³n ---------------------------------- */
 
 function InspeccionView({ areas, eppItems, personas, currentUser, accent, primary, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
@@ -963,7 +965,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       const p = personas.find((x) => x.id === pid);
       return {
         personaId: pid,
-        personaNombre: p?.nombre || "—",
+        personaNombre: p?.nombre || "â€”",
         rol: p?.rol || "",
         items: eppItems.map((ei) => ({ itemId: ei.id, texto: ei.texto, estado: eppStates[`${pid}:${ei.id}`] || "no_aplica" })),
       };
@@ -997,7 +999,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       pe.items.filter((i) => i.estado === "no_cumple").forEach((i) => {
         nuevosHallazgos.push({
           id: genId(), inspeccionId: insp.id, fecha: insp.fecha, area: area.nombre,
-          descripcion: `EPP · ${pe.personaNombre}: ${i.texto}`, responsable: pe.personaNombre,
+          descripcion: `EPP Â· ${pe.personaNombre}: ${i.texto}`, responsable: pe.personaNombre,
           estado: "abierto", fechaCompromiso: "", notas: "",
         });
       });
@@ -1011,10 +1013,10 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
     return (
       <div className="bg-white rounded-xl p-6 text-center mt-6">
         <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
-        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Inspección guardada</h3>
-        <p className="text-sm text-gray-500 mt-1">El registro quedó guardado correctamente.</p>
+        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>InspecciÃ³n guardada</h3>
+        <p className="text-sm text-gray-500 mt-1">El registro quedÃ³ guardado correctamente.</p>
         <button onClick={() => resetForm(areas[0]?.id || "")} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
-          Nueva inspección
+          Nueva inspecciÃ³n
         </button>
       </div>
     );
@@ -1023,12 +1025,12 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3">
-        <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Building2 size={12} /> Área a inspeccionar</label>
+        <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Building2 size={12} /> Ãrea a inspeccionar</label>
         <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
           {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} ítems evaluados</p>
+          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} Ã­tems evaluados</p>
           <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
           </div>
@@ -1038,7 +1040,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       {area && (
         <div className="bg-white rounded-xl p-3">
           <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-            <ListChecks size={16} /> Puntos de verificación
+            <ListChecks size={16} /> Puntos de verificaciÃ³n
           </h3>
           <div className="space-y-3">
             {area.items.map((it) => (
@@ -1053,13 +1055,13 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
       <div className="bg-white rounded-xl p-3">
         <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-          <ShieldCheck size={16} /> Evaluación de EPP del personal
+          <ShieldCheck size={16} /> EvaluaciÃ³n de EPP del personal
         </h3>
         {personas.length === 0 ? (
-          <p className="text-xs text-gray-400">No hay personal registrado. Un administrador puede agregarlo en la sección Admin.</p>
+          <p className="text-xs text-gray-400">No hay personal registrado. Un administrador puede agregarlo en la secciÃ³n Admin.</p>
         ) : (
           <>
-            <p className="text-xs text-gray-400 mb-2">Selecciona al personal presente para evaluar su equipo de protección.</p>
+            <p className="text-xs text-gray-400 mb-2">Selecciona al personal presente para evaluar su equipo de protecciÃ³n.</p>
             <div className="flex flex-wrap gap-1.5">
               {[...sugeridas, ...otras].map((p) => {
                 const on = selectedPersonaIds.includes(p.id);
@@ -1077,7 +1079,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
               const p = personas.find((x) => x.id === pid);
               return (
                 <div key={pid} className="mt-3 border border-gray-100 rounded-lg p-2.5">
-                  <p className="text-sm font-bold mb-1.5">{p?.nombre} <span className="text-xs font-normal text-gray-400">· {p?.rol}</span></p>
+                  <p className="text-sm font-bold mb-1.5">{p?.nombre} <span className="text-xs font-normal text-gray-400">Â· {p?.rol}</span></p>
                   <div className="space-y-2.5">
                     {eppItems.map((ei) => (
                       <div key={ei.id}>
@@ -1100,13 +1102,13 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       <div className="bg-white rounded-xl p-3">
         <label className="text-xs font-bold text-gray-500 uppercase">Observaciones generales</label>
         <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={3}
-          className="w-full border rounded-md px-3 py-2 mt-1 text-sm" placeholder="Notas adicionales sobre esta inspección…" />
+          className="w-full border rounded-md px-3 py-2 mt-1 text-sm" placeholder="Notas adicionales sobre esta inspecciÃ³nâ€¦" />
       </div>
 
       <button disabled={!allAnswered} onClick={handleSave}
         className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
         style={{ background: primary }}>
-        <Save size={18} /> Guardar inspección
+        <Save size={18} /> Guardar inspecciÃ³n
       </button>
     </div>
   );
@@ -1124,22 +1126,22 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
   const exportar = () => {
     const resumen = inspecciones.map((i) => ({
-      Fecha: fmtFecha(i.fecha), Área: i.areaNombre, Inspector: i.inspector,
+      Fecha: fmtFecha(i.fecha), Area: i.areaNombre, Inspector: i.inspector,
       "Cumplimiento %": i.cumplimientoPct, Observaciones: i.observaciones || "",
     }));
     const detalleItems = [];
     inspecciones.forEach((i) => i.items.forEach((it) => detalleItems.push({
-      Fecha: fmtFecha(i.fecha), Área: i.areaNombre, Ítem: it.texto, Estado: statusInfo(it.estado).label,
+      Fecha: fmtFecha(i.fecha), Area: i.areaNombre, Item: it.texto, Estado: statusInfo(it.estado).label,
     })));
     const detalleEpp = [];
     inspecciones.forEach((i) => (i.epp || []).forEach((pe) => pe.items.forEach((it) => detalleEpp.push({
-      Fecha: fmtFecha(i.fecha), Área: i.areaNombre, Persona: pe.personaNombre, "Ítem EPP": it.texto, Estado: statusInfo(it.estado).label,
+      Fecha: fmtFecha(i.fecha), Area: i.areaNombre, Persona: pe.personaNombre, "Item EPP": it.texto, Estado: statusInfo(it.estado).label,
     }))));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Inspecciones");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalleItems), "Detalle items");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalleEpp), "EPP");
-    // bookType xlsx: formato estándar compatible con Excel y con Google Sheets (Archivo > Importar, o abrir desde Drive)
+    // bookType xlsx: formato estÃ¡ndar compatible con Excel y con Google Sheets (Archivo > Importar, o abrir desde Drive)
     XLSX.writeFile(wb, "registro_calidad_cocina.xlsx", { bookType: "xlsx" });
   };
 
@@ -1157,7 +1159,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   };
 
   const eliminar = () => {
-    if (confirm("¿Eliminar esta inspección de forma permanente? También se eliminarán sus hallazgos asociados.")) {
+    if (confirm("Â¿Eliminar esta inspecciÃ³n de forma permanente? TambiÃ©n se eliminarÃ¡n sus hallazgos asociados.")) {
       onUpdate(inspecciones.filter((i) => i.id !== detalle.id));
       onDeleteCascadeHallazgos(detalle.id);
       setDetalle(null);
@@ -1168,7 +1170,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center">
         <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="border rounded-md px-3 py-2 text-sm flex-1">
-          <option value="todas">Todas las áreas</option>
+          <option value="todas">Todas las Ã¡reas</option>
           {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
         </select>
         <button onClick={exportar} className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-bold border" style={{ borderColor: primary, color: primary }}>
@@ -1176,7 +1178,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
         </button>
       </div>
 
-      {filtradas.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin registros todavía.</p>}
+      {filtradas.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin registros todavÃ­a.</p>}
 
       <div className="space-y-2">
         {filtradas.map((i) => {
@@ -1185,7 +1187,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
             <button key={i.id} onClick={() => setDetalle(i)} className="w-full bg-white rounded-lg p-3 flex items-center justify-between text-left">
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{i.areaNombre}</p>
-                <p className="text-xs text-gray-400">{fmtFecha(i.fecha)} · {i.inspector}</p>
+                <p className="text-xs text-gray-400">{fmtFecha(i.fecha)} Â· {i.inspector}</p>
               </div>
               <Badge color={st.color} bg={st.bg}>{i.cumplimientoPct}%</Badge>
             </button>
@@ -1195,7 +1197,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
       {detalle && (
         <Modal title={detalle.areaNombre} onClose={() => { setDetalle(null); setEditando(false); }} wide>
-          <p className="text-xs text-gray-400 mb-3">{fmtFecha(detalle.fecha)} · Inspector: {detalle.inspector}</p>
+          <p className="text-xs text-gray-400 mb-3">{fmtFecha(detalle.fecha)} Â· Inspector: {detalle.inspector}</p>
 
           <div className="space-y-3">
             {(editando ? draft : detalle).items.map((it, idx) => (
@@ -1259,7 +1261,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   );
 }
 
-/* ---------------------------------- análisis ---------------------------------- */
+/* ---------------------------------- anÃ¡lisis ---------------------------------- */
 
 function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
   const promedioGeneral = useMemo(() => {
@@ -1310,7 +1312,7 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
 
       {porArea.length > 0 && (
         <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Cumplimiento promedio por área</h3>
+          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Cumplimiento promedio por Ã¡rea</h3>
           <ResponsiveContainer width="100%" height={Math.max(180, porArea.length * 34)}>
             <BarChart data={porArea} layout="vertical" margin={{ left: 10, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -1338,7 +1340,7 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
         </div>
       )}
 
-      {inspecciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Realiza inspecciones para ver el análisis acumulado.</p>}
+      {inspecciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Realiza inspecciones para ver el anÃ¡lisis acumulado.</p>}
     </div>
   );
 }
@@ -1384,7 +1386,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{h.descripcion}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{h.area} · {fmtFecha(h.fecha)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{h.area} Â· {fmtFecha(h.fecha)}</p>
                 </div>
                 <Badge color={st.color} bg={st.bg}>{st.label}</Badge>
               </div>
@@ -1401,7 +1403,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
                 </div>
               ) : (
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-gray-500">{h.responsable ? `Responsable: ${h.responsable}` : "Sin responsable asignado"}{h.fechaCompromiso ? ` · Compromiso: ${h.fechaCompromiso}` : ""}</p>
+                  <p className="text-xs text-gray-500">{h.responsable ? `Responsable: ${h.responsable}` : "Sin responsable asignado"}{h.fechaCompromiso ? ` Â· Compromiso: ${h.fechaCompromiso}` : ""}</p>
                   <button onClick={() => startEdit(h)} className="text-xs font-bold flex items-center gap-1" style={{ color: primary }}>
                     <Pencil size={12} /> Editar
                   </button>
@@ -1415,14 +1417,14 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   );
 }
 
-/* ---------------------------------- administración ---------------------------------- */
+/* ---------------------------------- administraciÃ³n ---------------------------------- */
 
 function AdminView({ config, areas, usuarios, currentUser, onConfig, onAreas, onUsuarios, primary, backupData }) {
   const [sub, setSub] = useState("general");
 
   const subs = [
     { id: "general", label: "General" },
-    { id: "areas", label: "Áreas" },
+    { id: "areas", label: "Ãreas" },
     { id: "usuarios", label: "Usuarios" },
     { id: "acerca", label: "Acerca de" },
   ];
@@ -1517,7 +1519,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
 
       <div className="grid sm:grid-cols-3 gap-3">
         <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Tamaño de letra</label>
+          <label className="text-xs font-bold text-gray-500 uppercase">TamaÃ±o de letra</label>
           <input type="range" min="90" max="120" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
           <p className="text-[11px] text-gray-400">{fontScale}%</p>
         </div>
@@ -1562,7 +1564,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
           <div className="flex flex-col gap-1.5">
             <label className="px-3 py-1.5 rounded-md text-xs font-bold border cursor-pointer inline-flex items-center gap-1.5 w-fit"
               style={{ borderColor: primary, color: primary }}>
-              <ImagePlus size={13} /> {logoBusy ? "Cargando…" : "Subir imagen"}
+              <ImagePlus size={13} /> {logoBusy ? "Cargandoâ€¦" : "Subir imagen"}
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogo} className="hidden" disabled={logoBusy} />
             </label>
             {logo && (
@@ -1570,7 +1572,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
             )}
           </div>
         </div>
-        <p className="text-[11px] text-gray-400 mt-1.5">Formatos: PNG, JPG, WEBP o SVG. Se ajusta automáticamente y se guarda al instante.</p>
+        <p className="text-[11px] text-gray-400 mt-1.5">Formatos: PNG, JPG, WEBP o SVG. Se ajusta automÃ¡ticamente y se guarda al instante.</p>
         {logoError && <p className="text-xs text-red-600 mt-1 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{logoError}</p>}
       </div>
 
@@ -1594,7 +1596,7 @@ const [editandoItem, setEditandoItem] = useState(null);
     setNuevaArea("");
   };
   const eliminarArea = (id) => {
-    if (confirm("¿Eliminar esta área y todos sus ítems?")) onAreas(areas.filter((a) => a.id !== id));
+    if (confirm("Â¿Eliminar esta Ã¡rea y todos sus Ã­tems?")) onAreas(areas.filter((a) => a.id !== id));
   };
   const agregarItem = (areaId) => {
     const texto = (nuevoItem[areaId] || "").trim();
@@ -1628,7 +1630,7 @@ const [editandoItem, setEditandoItem] = useState(null);
   return (
     <div className="space-y-2">
       <div className="bg-white rounded-xl p-3 flex gap-2">
-        <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva área…" className="flex-1 border rounded-md px-3 py-2 text-sm" />
+        <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva Ã¡reaâ€¦" className="flex-1 border rounded-md px-3 py-2 text-sm" />
         <button onClick={agregarArea} className="px-3 rounded-md font-bold text-white flex items-center gap-1" style={{ background: primary }}><Plus size={16} /></button>
       </div>
 
@@ -1636,7 +1638,7 @@ const [editandoItem, setEditandoItem] = useState(null);
         <div key={a.id} className="bg-white rounded-xl p-3">
           <div className="flex items-center gap-2">
             <input value={a.nombre} onChange={(e) => renombrarArea(a.id, e.target.value)} className="flex-1 font-bold text-sm border-b border-transparent focus:border-gray-300 outline-none py-1" />
-            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="text-xs font-bold" style={{ color: primary }}>{expand === a.id ? "Ocultar" : `${a.items.length} ítems`}</button>
+            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="text-xs font-bold" style={{ color: primary }}>{expand === a.id ? "Ocultar" : `${a.items.length} Ã­tems`}</button>
             <button onClick={() => eliminarArea(a.id)} className="text-red-500"><Trash2 size={16} /></button>
           </div>
           {expand === a.id && (
@@ -1686,7 +1688,7 @@ const [editandoItem, setEditandoItem] = useState(null);
 ))}
               <div className="flex gap-2">
                 <input value={nuevoItem[a.id] || ""} onChange={(e) => setNuevoItem((s) => ({ ...s, [a.id]: e.target.value }))}
-                  placeholder="Nuevo ítem…" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
+                  placeholder="Nuevo Ã­temâ€¦" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
                 <button onClick={() => agregarItem(a.id)} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
               </div>
             </div>
@@ -1716,7 +1718,7 @@ function AdminEpp({ eppItems, onEpp, primary }) {
         </div>
       ))}
       <div className="flex gap-2 pt-1">
-        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo ítem de EPP…" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
+        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo Ã­tem de EPPâ€¦" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
         <button onClick={agregar} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
       </div>
     </div>
@@ -1743,7 +1745,7 @@ function AreaCheckboxes({ areas, value, onChange, max = MAX_AREAS_POR_PERSONA })
           );
         })}
       </div>
-      <p className="text-[11px] text-gray-400 mt-1">{value.length}/{max} áreas seleccionadas</p>
+      <p className="text-[11px] text-gray-400 mt-1">{value.length}/{max} Ã¡reas seleccionadas</p>
     </div>
   );
 }
@@ -1758,7 +1760,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
     setForm({ nombre: "", rol: "", areas: [] });
   };
   const eliminar = (id) => {
-    if (confirm("¿Eliminar a esta persona?")) onPersonas(personas.filter((p) => p.id !== id));
+    if (confirm("Â¿Eliminar a esta persona?")) onPersonas(personas.filter((p) => p.id !== id));
   };
   const guardarEdicion = (p) => {
     onPersonas(personas.map((x) => x.id === p.id ? p : x));
@@ -1772,7 +1774,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="w-full border rounded-md px-3 py-2 text-sm" />
         <input value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} placeholder="Rol / puesto" className="w-full border rounded-md px-3 py-2 text-sm" />
         <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Áreas asignadas (máx. 3)</label>
+          <label className="text-xs font-bold text-gray-500 uppercase">Ãreas asignadas (mÃ¡x. 3)</label>
           <div className="mt-1"><AreaCheckboxes areas={areas} value={form.areas} onChange={(v) => setForm({ ...form, areas: v })} /></div>
         </div>
         <button onClick={agregar} className="w-full py-2 rounded-md font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><Plus size={15} /> Agregar</button>
@@ -1786,7 +1788,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold text-sm">{p.nombre}</p>
-                <p className="text-xs text-gray-400">{p.rol}{p.areas?.length ? ` · ${p.areas.join(", ")}` : ""}</p>
+                <p className="text-xs text-gray-400">{p.rol}{p.areas?.length ? ` Â· ${p.areas.join(", ")}` : ""}</p>
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 <button onClick={() => setEditId(p.id)} className="text-gray-500"><Pencil size={16} /></button>
@@ -1807,7 +1809,7 @@ function PersonaEditForm({ persona, areas, onSave, onCancel, primary }) {
       <input value={p.nombre} onChange={(e) => setP({ ...p, nombre: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
       <input value={p.rol} onChange={(e) => setP({ ...p, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
       <div>
-        <label className="text-xs font-bold text-gray-500 uppercase">Áreas asignadas (máx. 3)</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Ãreas asignadas (mÃ¡x. 3)</label>
         <div className="mt-1"><AreaCheckboxes areas={areas} value={p.areas} onChange={(v) => setP({ ...p, areas: v })} /></div>
       </div>
       <div className="flex gap-2">
@@ -1826,9 +1828,9 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
   const admins = usuarios.filter((u) => u.rol === "administrador");
 
   const agregar = () => {
-    if (usuarios.length >= MAX_USUARIOS) return setMsg(`Ya alcanzaste el máximo de ${MAX_USUARIOS} usuarios.`);
+    if (usuarios.length >= MAX_USUARIOS) return setMsg(`Ya alcanzaste el mÃ¡ximo de ${MAX_USUARIOS} usuarios.`);
     if (!form.nombre.trim()) return setMsg("Escribe el nombre del usuario.");
-    if (form.password.length < 4) return setMsg("La contraseña debe tener al menos 4 caracteres.");
+    if (form.password.length < 4) return setMsg("La contraseÃ±a debe tener al menos 4 caracteres.");
     onUsuarios([...usuarios, { id: genId(), nombre: form.nombre.trim(), password: form.password, rol: form.rol }]);
     setForm({ nombre: "", password: "", rol: "usuario" });
     setMsg("");
@@ -1839,7 +1841,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
       setMsg("Debe existir al menos un administrador. Crea otro antes de eliminar este.");
       return;
     }
-    if (confirm(`¿Eliminar el acceso de ${u.nombre}?`)) onUsuarios(usuarios.filter((x) => x.id !== u.id));
+    if (confirm(`Â¿Eliminar el acceso de ${u.nombre}?`)) onUsuarios(usuarios.filter((x) => x.id !== u.id));
   };
 
   const guardarEdicion = (u) => {
@@ -1859,7 +1861,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
           <UserPlus size={15} /> Agregar usuario ({usuarios.length}/{MAX_USUARIOS})
         </h3>
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Contraseña (mín. 4 caracteres)" className="w-full border rounded-md px-3 py-2 text-sm" />
+        <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="ContraseÃ±a (mÃ­n. 4 caracteres)" className="w-full border rounded-md px-3 py-2 text-sm" />
         <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
           <option value="usuario">Usuario (solo hace inspecciones)</option>
           <option value="administrador">Administrador (acceso total)</option>
@@ -1879,7 +1881,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold text-sm flex items-center gap-1.5">
-                  {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tú)</span>}
+                  {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tÃº)</span>}
                 </p>
                 <Badge color={u.rol === "administrador" ? "#1F2B3A" : "#5C6673"} bg={u.rol === "administrador" ? "#E9ECEF" : "#F1F3F4"}>
                   {u.rol === "administrador" ? "Administrador" : "Usuario"}
@@ -1894,7 +1896,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
         </div>
       ))}
 
-      <p className="text-[11px] text-gray-400 px-1">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaña Inspección y no ven Historial, Análisis, Hallazgos ni Admin.</p>
+      <p className="text-[11px] text-gray-400 px-1">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaÃ±a InspecciÃ³n y no ven Historial, AnÃ¡lisis, Hallazgos ni Admin.</p>
     </div>
   );
 }
@@ -1904,7 +1906,7 @@ function UsuarioEditForm({ usuario, onSave, onCancel, primary }) {
   return (
     <div className="space-y-2">
       <input value={u.nombre} onChange={(e) => setU({ ...u, nombre: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Nombre" />
-      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Contraseña" />
+      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="ContraseÃ±a" />
       <select value={u.rol} onChange={(e) => setU({ ...u, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
         <option value="usuario">Usuario (solo hace inspecciones)</option>
         <option value="administrador">Administrador (acceso total)</option>
@@ -1925,18 +1927,19 @@ function AdminAcercaDe({ primary }) {
         <h3 className="font-bold text-base" style={{ fontFamily: "Oswald, sans-serif" }}>Acerca de este checklist</h3>
       </div>
       <p className="text-sm text-gray-600">Creado por <span className="font-bold">{CREADO_POR}</span></p>
-      <p className="text-sm text-gray-400 mb-3">Versión actual: <span className="font-bold" style={{ color: primary }}>v{APP_VERSION}</span></p>
+      <p className="text-sm text-gray-400 mb-3">VersiÃ³n actual: <span className="font-bold" style={{ color: primary }}>v{APP_VERSION}</span></p>
 
       <h4 className="text-xs font-bold text-gray-500 uppercase mb-1.5">Historial de versiones</h4>
       <div className="space-y-2">
         {CHANGELOG.map((c) => (
           <div key={c.version} className="border-l-2 pl-2.5" style={{ borderColor: primary }}>
-            <p className="text-sm font-bold">v{c.version} <span className="text-xs font-normal text-gray-400">· {c.fecha}</span></p>
+            <p className="text-sm font-bold">v{c.version} <span className="text-xs font-normal text-gray-400">Â· {c.fecha}</span></p>
             <p className="text-xs text-gray-600">{c.cambios}</p>
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-gray-400 mt-3">La versión se actualiza cada vez que se realizan ajustes significativos a la aplicación.</p>
+      <p className="text-[11px] text-gray-400 mt-3">La versiÃ³n se actualiza cada vez que se realizan ajustes significativos a la aplicaciÃ³n.</p>
     </div>
   );
 }
+
