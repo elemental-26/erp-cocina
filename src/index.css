@@ -64,17 +64,22 @@ textarea {
 input:not([type="color"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
-  min-height: 48px;
-  font-size: 16px !important;
+  min-height: 56px;
+  font-size: calc(1rem * var(--erp-font-factor, 1.25)) !important;
   line-height: 1.35;
 }
 
 textarea {
-  min-height: 112px;
+  min-height: 136px;
 }
 
 button {
-  min-height: 40px;
+  min-height: 46px;
+}
+
+.erp-touch {
+  --erp-font-factor: 1.25;
+  text-align: center;
 }
 
 .erp-touch input:not([type="color"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]),
@@ -82,23 +87,44 @@ button {
 .erp-touch textarea {
   border-width: 2px;
   border-radius: 10px;
-  padding-block: 12px;
-}
-
-.erp-touch .text-xs {
-  font-size: 0.82rem;
-}
-
-.erp-touch .text-sm {
-  font-size: 0.96rem;
-}
-
-.erp-touch .text-\[11px\] {
-  font-size: 0.78rem;
+  padding-block: 14px;
+  padding-inline: 14px;
 }
 
 .erp-touch .text-\[10px\] {
-  font-size: 0.72rem;
+  font-size: calc(0.82rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-\[11px\] {
+  font-size: calc(0.88rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-xs {
+  font-size: calc(0.92rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-sm {
+  font-size: calc(1rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-base {
+  font-size: calc(1.08rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-lg {
+  font-size: calc(1.18rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-xl {
+  font-size: calc(1.32rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-2xl {
+  font-size: calc(1.55rem * var(--erp-font-factor, 1.25)) !important;
+}
+
+.erp-touch .text-3xl {
+  font-size: calc(1.8rem * var(--erp-font-factor, 1.25)) !important;
 }
 
 #root {
@@ -116,11 +142,21 @@ button {
 .erp-touch input,
 .erp-touch select,
 .erp-touch textarea,
-.erp-touch label,
-.erp-touch aside,
-.erp-touch table,
-.erp-touch .text-left {
+.erp-touch option {
   text-align: left;
+}
+
+.erp-touch label,
+.erp-touch p,
+.erp-touch h1,
+.erp-touch h2,
+.erp-touch h3,
+.erp-touch h4,
+.erp-touch h5,
+.erp-touch h6,
+.erp-touch .text-left,
+.erp-touch .text-right {
+  text-align: center !important;
 }
 
 h1,

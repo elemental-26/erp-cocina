@@ -37,8 +37,8 @@ const APP_VERSION_DATE = "2026-07-31";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
   { version: "1.2.0", fecha: APP_VERSION_DATE, cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
-  { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseÃ±a y rol (administrador/usuario), hasta 3 Ã¡reas por persona del personal, mejoras en carga de logo, secciÃ³n Acerca de con control de versiÃ³n." },
-  { version: "1.0.0", fecha: "2026-07-19", cambios: "VersiÃ³n inicial: checklist por Ã¡reas, evaluaciÃ³n de EPP, historial exportable, anÃ¡lisis acumulado y seguimiento de hallazgos." },
+  { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
+  { version: "1.0.0", fecha: "2026-07-19", cambios: "Versión inicial: checklist por áreas, evaluación de EPP, historial exportable, análisis acumulado y seguimiento de hallazgos." },
 ];
 
 /* ---------------------------------- utilidades ---------------------------------- */
@@ -479,7 +479,15 @@ export default function App() {
   }
 
   return (
-    <div className="erp-touch min-h-screen flex flex-col relative" style={{ background: "#F1F3F4", fontFamily: config?.fontFamily || "Inter, sans-serif", fontSize: `${config?.fontScale || 112}%` }}>
+    <div
+      className="erp-touch min-h-screen flex flex-col relative"
+      style={{
+        background: "#F1F3F4",
+        fontFamily: config?.fontFamily || "Inter, sans-serif",
+        fontSize: `${config?.fontScale || 125}%`,
+        "--erp-font-factor": (config?.fontScale || 125) / 100,
+      }}
+    >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
       `}</style>
@@ -792,7 +800,7 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseÃ±a debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseÃ±as no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 112, fontFamily: "Inter, sans-serif" },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif" },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
