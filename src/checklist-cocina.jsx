@@ -1361,18 +1361,154 @@ const ESTADOS_HALLAZGO = [
   { value: "cerrado", label: "Cerrado", color: "#1E7A46", bg: "#E4F4EA" },
 ];
 
+const normalizeText = (value = "") => value.toString().trim().toLowerCase();
+
+function hallazgoKey(h) {
+  return [normalizeText(h.responsable || "sin responsable"), normalizeText(h.area), normalizeText(h.descripcion)].join("|");
+}
+
+function escapeHtml(value = "") {
+  return value.toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function downloadTextFile(filename, content, type = "text/html;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function HallazgosView({ hallazgos, onUpdate, primary }) {
   const [filtro, setFiltro] = useState("todos");
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState(null);
 
   const filtrados = hallazgos.filter((h) => filtro === "todos" || h.estado === filtro);
+  const recurrencias = useMemo(() => {
+    const counts = {};
+    hallazgos.forEach((h) => {
+      const key = hallazgoKey(h);
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [hallazgos]);
+
+  const recurrentes = Object.entries(recurrencias).filter(([, total]) => total >= 2).length;
 
   const startEdit = (h) => { setEditId(h.id); setDraft({ ...h }); };
   const guardar = () => { onUpdate(hallazgos.map((h) => h.id === draft.id ? draft : h)); setEditId(null); };
+  const marcarLlamado = (h, total) => {
+    const registro = {
+      id: genId(),
+      fecha: todayISO(),
+      recurrencias: total,
+      estado: "generado",
+    };
+    onUpdate(hallazgos.map((item) => item.id === h.id ? {
+      ...item,
+      llamadoAtencion: registro,
+      llamadosAtencion: [registro, ...(item.llamadosAtencion || [])],
+    } : item));
+    return registro;
+  };
+
+  const buildLlamado = (h, total, registro) => {
+    const responsable = h.responsable || "Sin responsable asignado";
+    const fecha = new Date(registro.fecha).toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "2-digit" });
+    return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Llamado de atención - ${escapeHtml(responsable)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; margin: 32px; line-height: 1.45; }
+    .header { border-bottom: 3px solid ${primary}; padding-bottom: 12px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 24px; text-transform: uppercase; }
+    h2 { font-size: 16px; margin: 24px 0 8px; }
+    .box { border: 1px solid #d1d5db; border-radius: 8px; padding: 14px; margin: 12px 0; }
+    .grid { display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; }
+    .label { font-weight: 700; color: #4b5563; }
+    .warn { color: #991b1b; font-weight: 700; }
+    .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 56px; }
+    .firma { border-top: 1px solid #111827; padding-top: 8px; text-align: center; }
+    @media print { body { margin: 18mm; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Llamado de atención</h1>
+    <p>Documento generado desde el ERP de calidad e inspecciones.</p>
+  </div>
+  <div class="box grid">
+    <div class="label">Fecha</div><div>${escapeHtml(fecha)}</div>
+    <div class="label">Responsable</div><div>${escapeHtml(responsable)}</div>
+    <div class="label">Área</div><div>${escapeHtml(h.area || "Sin área")}</div>
+    <div class="label">Repeticiones</div><div class="warn">${total} registro(s) del mismo incumplimiento</div>
+    <div class="label">Compromiso</div><div>${escapeHtml(h.fechaCompromiso || "Pendiente por definir")}</div>
+  </div>
+  <h2>Incumplimiento reportado</h2>
+  <div class="box">${escapeHtml(h.descripcion || "Sin descripción")}</div>
+  <h2>Observaciones de seguimiento</h2>
+  <div class="box">${escapeHtml(h.notas || "Sin notas registradas.")}</div>
+  <h2>Acción requerida</h2>
+  <p>Se solicita corregir la condición reportada, evitar su repetición y cumplir los compromisos definidos por la empresa.</p>
+  <div class="firmas">
+    <div class="firma">Responsable</div>
+    <div class="firma">Administrador / Inspector</div>
+  </div>
+</body>
+</html>`;
+  };
+
+  const descargarLlamado = (h, total) => {
+    const registro = marcarLlamado(h, total);
+    const responsable = (h.responsable || "sin-responsable").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    downloadTextFile(`llamado-atencion-${responsable || "registro"}-${new Date().toISOString().slice(0, 10)}.html`, buildLlamado(h, total, registro));
+  };
+
+  const enviarLlamado = (h, total) => {
+    const registro = marcarLlamado(h, total);
+    const responsable = h.responsable || "Sin responsable asignado";
+    const subject = `Llamado de atención - ${responsable}`;
+    const body = [
+      "Llamado de atención generado desde el ERP.",
+      "",
+      `Fecha: ${new Date(registro.fecha).toLocaleDateString("es-CO")}`,
+      `Responsable: ${responsable}`,
+      `Área: ${h.area || "Sin área"}`,
+      `Incumplimiento: ${h.descripcion || "Sin descripción"}`,
+      `Repeticiones detectadas: ${total}`,
+      `Compromiso: ${h.fechaCompromiso || "Pendiente por definir"}`,
+      "",
+      `Notas: ${h.notas || "Sin notas registradas."}`,
+    ].join("\n");
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
 
   return (
     <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3 border" style={{ borderColor: recurrentes ? "#F2C94C" : "#E5E7EB" }}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Llamados de atención</h3>
+            <p className="text-xs text-gray-500">
+              Se habilitan desde cada hallazgo. El sistema marca como repetitivo cuando el mismo responsable repite el mismo incumplimiento 2 o más veces.
+            </p>
+          </div>
+          <Badge color={recurrentes ? "#B4750E" : "#1E7A46"} bg={recurrentes ? "#FCF1DC" : "#E4F4EA"}>
+            {recurrentes} repetitivo(s)
+          </Badge>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto">
         {["todos", ...ESTADOS_HALLAZGO.map((e) => e.value)].map((f) => (
           <button key={f} onClick={() => setFiltro(f)}
@@ -1389,6 +1525,8 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
         {filtrados.map((h) => {
           const st = ESTADOS_HALLAZGO.find((e) => e.value === h.estado);
           const editing = editId === h.id;
+          const totalRecurrencias = recurrencias[hallazgoKey(h)] || 1;
+          const puedeLlamado = totalRecurrencias >= 2 || h.estado !== "cerrado";
           return (
             <div key={h.id} className="bg-white rounded-lg p-3">
               <div className="flex items-start justify-between gap-2">
@@ -1410,11 +1548,34 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
                   <button onClick={guardar} className="w-full py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>Guardar</button>
                 </div>
               ) : (
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-gray-500">{h.responsable ? `Responsable: ${h.responsable}` : "Sin responsable asignado"}{h.fechaCompromiso ? ` Â· Compromiso: ${h.fechaCompromiso}` : ""}</p>
-                  <button onClick={() => startEdit(h)} className="text-xs font-bold flex items-center gap-1" style={{ color: primary }}>
-                    <Pencil size={12} /> Editar
-                  </button>
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-gray-500">
+                    {h.responsable ? `Responsable: ${h.responsable}` : "Sin responsable asignado"}
+                    {h.fechaCompromiso ? ` · Compromiso: ${h.fechaCompromiso}` : ""}
+                    {totalRecurrencias >= 2 ? ` · Repetido ${totalRecurrencias} veces` : ""}
+                    {h.llamadoAtencion ? ` · Llamado generado` : ""}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button onClick={() => startEdit(h)} className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                      <Pencil size={12} /> Editar
+                    </button>
+                    <button
+                      disabled={!puedeLlamado}
+                      onClick={() => descargarLlamado(h, totalRecurrencias)}
+                      className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1 disabled:opacity-40"
+                      style={{ color: "#B5333D", borderColor: "#F0B8BD", background: "#FFF7F7" }}
+                    >
+                      <Download size={12} /> Descargar llamado
+                    </button>
+                    <button
+                      disabled={!puedeLlamado}
+                      onClick={() => enviarLlamado(h, totalRecurrencias)}
+                      className="px-3 py-2 rounded-md text-xs font-bold text-white flex items-center gap-1 disabled:opacity-40"
+                      style={{ background: "#B5333D" }}
+                    >
+                      <AlertTriangle size={12} /> Enviar
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
