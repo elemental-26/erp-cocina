@@ -278,7 +278,7 @@ function StampGauge({ pct, size = 128 }) {
 function Modal({ title, onClose, children, wide }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className={`bg-white w-full ${wide ? "sm:max-w-2xl" : "sm:max-w-md"} sm:rounded-lg rounded-t-2xl max-h-[90vh] flex flex-col`}>
+      <div className={`bg-white w-full ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"} sm:rounded-xl rounded-t-2xl max-h-[90vh] flex flex-col`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <h3 className="font-bold text-[15px]" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={20} /></button>
@@ -479,7 +479,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col relative" style={{ background: "#F1F3F4", fontFamily: config?.fontFamily || "Inter, sans-serif", fontSize: `${config?.fontScale || 100}%` }}>
+    <div className="erp-touch min-h-screen flex flex-col relative" style={{ background: "#F1F3F4", fontFamily: config?.fontFamily || "Inter, sans-serif", fontSize: `${config?.fontScale || 112}%` }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
       `}</style>
@@ -792,7 +792,7 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseÃ±a debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseÃ±as no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 100, fontFamily: "Inter, sans-serif" },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 112, fontFamily: "Inter, sans-serif" },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
@@ -1454,7 +1454,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [colorPrimario, setColorPrimario] = useState(config.colorPrimario);
   const [colorAccent, setColorAccent] = useState(config.colorAccent);
   const [logo, setLogo] = useState(config.logo);
-  const [fontScale, setFontScale] = useState(config.fontScale || 100);
+  const [fontScale, setFontScale] = useState(config.fontScale || 112);
   const [fontFamily, setFontFamily] = useState(config.fontFamily || "Inter, sans-serif");
   const [watermarkLogo, setWatermarkLogo] = useState(config.watermarkLogo !== false);
   const [inactiveStatsMonths, setInactiveStatsMonths] = useState(config.inactiveStatsMonths || 6);
@@ -1520,7 +1520,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
       <div className="grid sm:grid-cols-3 gap-3">
         <div>
           <label className="text-xs font-bold text-gray-500 uppercase">TamaÃ±o de letra</label>
-          <input type="range" min="90" max="120" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
+          <input type="range" min="100" max="150" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
           <p className="text-[11px] text-gray-400">{fontScale}%</p>
         </div>
         <div>
