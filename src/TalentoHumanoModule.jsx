@@ -120,6 +120,18 @@ function latestEvaluation(colaboradorId, evaluaciones) {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))[0];
 }
 
+function isActiveCollaborator(colaborador) {
+  return colaborador.estado !== "Inactivo" && colaborador.estado !== "Retirado";
+}
+
+function includeInStats(colaborador, months = 6) {
+  if (isActiveCollaborator(colaborador)) return true;
+  if (!colaborador.inactiveDate) return true;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  return new Date(colaborador.inactiveDate) >= cutoff;
+}
+
 function Badge({ children, color, bg }) {
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide" style={{ color, background: bg }}>
@@ -189,14 +201,15 @@ export default function TalentoHumanoView({
   const [sub, setSub] = useState("dashboard");
 
   const stats = useMemo(() => {
-    const active = colaboradores.filter((c) => c.estado !== "Retirado");
-    const latest = active.map((c) => ({ c, last: latestEvaluation(c.id, evaluaciones) }));
+    const active = colaboradores.filter(isActiveCollaborator);
+    const statPeople = colaboradores.filter((c) => includeInStats(c, config?.inactiveStatsMonths || 6));
+    const latest = statPeople.map((c) => ({ c, last: latestEvaluation(c.id, evaluaciones) }));
     const evaluated = latest.filter((x) => x.last).length;
     const average = evaluated ? Math.round(latest.reduce((sum, x) => sum + (x.last?.resultado?.percentage || 0), 0) / evaluated) : 0;
     return {
       total: active.length,
       evaluated,
-      pending: Math.max(active.length - evaluated, 0),
+      pending: Math.max(active.length - active.filter((c) => latestEvaluation(c.id, evaluaciones)).length, 0),
       average,
       outstanding: latest.filter((x) => (x.last?.resultado?.percentage || 0) >= 95).length,
       improvement: planes.filter((p) => p.estado !== "Cerrado").length,
@@ -260,7 +273,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
 
   const trend = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).slice(-10).map((e) => ({ fecha: fmtFecha(e.fecha), promedio: e.resultado?.percentage || 0 }));
   const expiring = certificaciones.filter((c) => daysUntil(c.vencimiento) <= 45).sort((a, b) => daysUntil(a.vencimiento) - daysUntil(b.vencimiento)).slice(0, 5);
-  const topPeople = colaboradores.map((c) => ({ ...c, score: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
+  const topPeople = colaboradores.filter(isActiveCollaborator).map((c) => ({ ...c, score: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
 
   return (
     <div className="space-y-3">
@@ -323,7 +336,14 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
 
   const save = () => {
     if (!form.nombre.trim()) return;
-    const payload = { ...form, nombre: form.nombre.trim(), documento: form.documento.trim(), rol: form.cargo, areas: form.area ? [form.area] : [] };
+    const payload = {
+      ...form,
+      nombre: form.nombre.trim(),
+      documento: form.documento.trim(),
+      rol: form.cargo,
+      areas: form.area ? [form.area] : [],
+      inactiveDate: form.estado === "Inactivo" || form.estado === "Retirado" ? (form.inactiveDate || dateOnly(new Date())) : "",
+    };
     if (editId) {
       onColaboradores(colaboradores.map((c) => c.id === editId ? { ...c, ...payload } : c));
       setEditId(null);
@@ -342,6 +362,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
       areas: colaborador.areas || (colaborador.area ? [colaborador.area] : []),
       fechaIngreso: colaborador.fechaIngreso || "",
       estado: colaborador.estado || "Activo",
+      inactiveDate: colaborador.inactiveDate || "",
       supervisor: colaborador.supervisor || "",
       foto: colaborador.foto || null,
     });
@@ -370,6 +391,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
           <select value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
             <option>Activo</option>
             <option>En entrenamiento</option>
+            <option>Inactivo</option>
             <option>Retirado</option>
           </select>
           <select value={form.supervisor} onChange={(e) => setForm({ ...form, supervisor: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
@@ -387,7 +409,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
         </div>
       </div>
 
-      {colaboradores.map((c) => {
+      {colaboradores.filter(isActiveCollaborator).map((c) => {
         const last = latestEvaluation(c.id, evaluaciones);
         return (
           <div key={c.id} className="bg-white rounded-xl p-3 flex items-center gap-3">
@@ -536,7 +558,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
           </select>
           <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
             <option value="">Selecciona colaborador</option>
-            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            {colaboradores.filter(isActiveCollaborator).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
           <select value={periodicidad} onChange={(e) => setPeriodicidad(e.target.value)} disabled={type !== "desempeno"} className="border rounded-md px-3 py-2 text-sm disabled:opacity-40">
             {REVIEW_PERIODS.map((p) => <option key={p}>{p}</option>)}
@@ -683,7 +705,7 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
         </div>
         <textarea value={form.evaluacion} onChange={(e) => setForm({ ...form, evaluacion: e.target.value })} placeholder="Evaluacion de la capacitacion" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
         <div className="flex flex-wrap gap-1.5">
-          {colaboradores.map((c) => <button key={c.id} type="button" onClick={() => toggle(c.id)} className="px-2.5 py-1 rounded-full text-xs font-semibold border" style={{ borderColor: form.asistentes.includes(c.id) ? primary : "#D8DCE1", background: form.asistentes.includes(c.id) ? primary : "#fff", color: form.asistentes.includes(c.id) ? "#fff" : "#5C6673" }}>{c.nombre}</button>)}
+          {colaboradores.filter(isActiveCollaborator).map((c) => <button key={c.id} type="button" onClick={() => toggle(c.id)} className="px-2.5 py-1 rounded-full text-xs font-semibold border" style={{ borderColor: form.asistentes.includes(c.id) ? primary : "#D8DCE1", background: form.asistentes.includes(c.id) ? primary : "#fff", color: form.asistentes.includes(c.id) ? "#fff" : "#5C6673" }}>{c.nombre}</button>)}
         </div>
         <button onClick={save} className="w-full py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>Guardar capacitacion</button>
       </div>

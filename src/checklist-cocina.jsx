@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import TalentoHumanoView from "./TalentoHumano";
+import TalentoHumanoView from "./TalentoHumanoModule";
 import {
   ClipboardCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
   Settings, Users, BarChart3, ListChecks, LogOut, Plus, Trash2, Pencil,
@@ -32,9 +32,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
+const APP_VERSION_DATE = "2026-07-31";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "1.2.0", fecha: APP_VERSION_DATE, cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
   { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
   { version: "1.0.0", fecha: "2026-07-19", cambios: "Versión inicial: checklist por áreas, evaluación de EPP, historial exportable, análisis acumulado y seguimiento de hallazgos." },
 ];
@@ -333,12 +335,13 @@ export default function App() {
   const [hrCertificaciones, setHrCertificaciones] = useState([]);
 
   const [currentUser, setCurrentUser] = useState(null);
+  const [activeModule, setActiveModule] = useState("menu");
   const [tab, setTab] = useState("inspeccion");
   const [loginTarget, setLoginTarget] = useState(null);
 
   useEffect(() => {
     (async () => {
-      const [c, a, e, p, u, i, h, hc, he, hp, ht, hcert] = await Promise.all([
+      const [c, a, e, p, u, i, h, hc, he, hp, ht, hcert, session] = await Promise.all([
         loadKey("qc_config", null),
         loadKey("qc_areas", null),
         loadKey("qc_epp", null),
@@ -351,6 +354,7 @@ export default function App() {
         loadKey("hr_planes_mejora", []),
         loadKey("hr_capacitaciones", []),
         loadKey("hr_certificaciones", []),
+        loadKey("erp_session_user", null),
       ]);
       let finalAreas = a;
       if (!finalAreas) {
@@ -364,18 +368,27 @@ export default function App() {
       }
       // migración: personas antiguas con "area" (texto) -> "areas" (arreglo)
       const finalPersonas = (p || []).map((per) => per.areas ? per : { ...per, areas: per.area ? [per.area] : [] });
+      const migratedColaboradores = (hc?.length ? hc : finalPersonas.map((per) => ({
+        ...per,
+        documento: per.documento || "",
+        cargo: per.cargo || per.rol || "",
+        area: per.area || per.areas?.[0] || "",
+        estado: per.estado || "Activo",
+      })));
+      if (!hc?.length && migratedColaboradores.length) saveKey("hr_colaboradores", migratedColaboradores);
       setConfig(c);
       setAreas(finalAreas);
       setEppItems(finalEpp);
-      setPersonas(finalPersonas);
+      setPersonas(migratedColaboradores);
       setUsuarios(u || []);
       setInspecciones(i || []);
       setHallazgos(h || []);
-      setHrColaboradores(hc || []);
+      setHrColaboradores(migratedColaboradores || []);
       setHrEvaluaciones(he || []);
       setHrPlanes(hp || []);
       setHrCapacitaciones(ht || []);
       setHrCertificaciones(hcert || []);
+      if (session && (u || []).some((user) => user.id === session.id)) setCurrentUser(session);
       setLoading(false);
     })();
   }, []);
@@ -388,7 +401,7 @@ export default function App() {
     usuarios: async (v) => { setUsuarios(v); await saveKey("qc_usuarios", v); },
     inspecciones: async (v) => { setInspecciones(v); await saveKey("qc_inspecciones", v); },
     hallazgos: async (v) => { setHallazgos(v); await saveKey("qc_hallazgos", v); },
-    hrColaboradores: async (v) => { setHrColaboradores(v); await saveKey("hr_colaboradores", v); },
+    hrColaboradores: async (v) => { setHrColaboradores(v); setPersonas(v); await saveKey("hr_colaboradores", v); await saveKey("qc_personas", v); },
     hrEvaluaciones: async (v) => { setHrEvaluaciones(v); await saveKey("hr_evaluaciones", v); },
     hrPlanes: async (v) => { setHrPlanes(v); await saveKey("hr_planes_mejora", v); },
     hrCapacitaciones: async (v) => { setHrCapacitaciones(v); await saveKey("hr_capacitaciones", v); },
@@ -398,6 +411,26 @@ export default function App() {
   const primary = config?.colorPrimario || "#1F2B3A";
   const accent = config?.colorAccent || "#F2622E";
   const isAdmin = currentUser?.rol === "administrador";
+  const activeColaboradores = useMemo(() => hrColaboradores.filter((p) => p.estado !== "Inactivo" && p.estado !== "Retirado"), [hrColaboradores]);
+
+  useEffect(() => {
+    if (loading || !config) return;
+    saveKey("erp_last_backup", {
+      createdAt: todayISO(),
+      version: APP_VERSION,
+      config,
+      areas,
+      eppItems,
+      usuarios,
+      inspecciones,
+      hallazgos,
+      hrColaboradores,
+      hrEvaluaciones,
+      hrPlanes,
+      hrCapacitaciones,
+      hrCertificaciones,
+    });
+  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones]);
 
   if (loading) {
     return (
@@ -417,6 +450,8 @@ export default function App() {
           persist.config(cfg);
           persist.usuarios([adminUsuario]);
           setCurrentUser(adminUsuario);
+          saveKey("erp_session_user", adminUsuario);
+          setActiveModule("menu");
           setTab("inspeccion");
         }}
       />
@@ -434,7 +469,7 @@ export default function App() {
           <PasswordModal
             usuario={loginTarget}
             onClose={() => setLoginTarget(null)}
-            onSuccess={() => { setCurrentUser(loginTarget); setLoginTarget(null); setTab("inspeccion"); }}
+            onSuccess={() => { setCurrentUser(loginTarget); saveKey("erp_session_user", loginTarget); setLoginTarget(null); setActiveModule("menu"); setTab("inspeccion"); }}
           />
         )}
       </LoginScreen>
@@ -442,18 +477,34 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#F1F3F4", fontFamily: "Inter, sans-serif" }}>
+    <div className="min-h-screen flex flex-col relative" style={{ background: "#F1F3F4", fontFamily: config?.fontFamily || "Inter, sans-serif", fontSize: `${config?.fontScale || 100}%` }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
       `}</style>
+      {config?.logo && config?.watermarkLogo !== false && (
+        <img src={config.logo} alt="" className="pointer-events-none fixed right-4 bottom-20 z-0 h-40 w-40 object-contain opacity-[0.035]" />
+      )}
 
-      <Header config={config} primary={primary} currentUser={currentUser} isAdmin={isAdmin}
-        onLogout={() => setCurrentUser(null)} />
+      <ErpHeader config={config} primary={primary} currentUser={currentUser} isAdmin={isAdmin}
+        activeModule={activeModule}
+        onHome={() => setActiveModule("menu")}
+        onLogout={() => { setCurrentUser(null); saveKey("erp_session_user", null); setActiveModule("menu"); }} />
 
-      <main className={`flex-1 overflow-y-auto ${isAdmin ? "pb-20" : "pb-6"} max-w-3xl w-full mx-auto px-3 pt-3`}>
-        {tab === "inspeccion" && (
-          <InspeccionView
-            areas={areas} eppItems={eppItems} personas={personas}
+      <main className={`flex-1 overflow-y-auto ${isAdmin && activeModule === "calidad" ? "pb-20" : "pb-6"} w-full max-w-6xl mx-auto px-3 pt-3 relative z-10`}>
+        {activeModule === "menu" && (
+          <ErpModuleLauncher
+            isAdmin={isAdmin}
+            primary={primary}
+            accent={accent}
+            onSelect={(moduleId) => {
+              setActiveModule(moduleId);
+              setTab(moduleId === "calidad" ? "inspeccion" : "dashboard");
+            }}
+          />
+        )}
+        {activeModule === "calidad" && tab === "inspeccion" && (
+          <AreaInspectionView
+            areas={areas} personas={activeColaboradores}
             currentUser={currentUser} accent={accent} primary={primary}
             onSave={async (insp, nuevosHallazgos) => {
               await persist.inspecciones([insp, ...inspecciones]);
@@ -461,20 +512,20 @@ export default function App() {
             }}
           />
         )}
-        {isAdmin && tab === "historial" && (
+        {activeModule === "calidad" && isAdmin && tab === "historial" && (
           <HistorialView
             inspecciones={inspecciones} areas={areas} primary={primary}
             onUpdate={(v) => persist.inspecciones(v)}
             onDeleteCascadeHallazgos={(id) => persist.hallazgos(hallazgos.filter((h) => h.inspeccionId !== id))}
           />
         )}
-        {isAdmin && tab === "analisis" && (
+        {activeModule === "calidad" && isAdmin && tab === "analisis" && (
           <AnalisisView inspecciones={inspecciones} hallazgos={hallazgos} primary={primary} accent={accent} />
         )}
-        {isAdmin && tab === "hallazgos" && (
+        {activeModule === "calidad" && isAdmin && tab === "hallazgos" && (
           <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} />
         )}
-        {isAdmin && tab === "talento" && (
+        {activeModule === "talento" && isAdmin && (
           <TalentoHumanoView
             colaboradores={hrColaboradores}
             evaluaciones={hrEvaluaciones}
@@ -486,25 +537,241 @@ export default function App() {
             currentUser={currentUser}
             primary={primary}
             accent={accent}
+            config={config}
             onColaboradores={persist.hrColaboradores}
             onEvaluaciones={persist.hrEvaluaciones}
             onPlanes={persist.hrPlanes}
             onCapacitaciones={persist.hrCapacitaciones}
             onCertificaciones={persist.hrCertificaciones}
+            onConfig={persist.config}
           />
         )}
-        {isAdmin && tab === "admin" && (
+        {activeModule === "admin" && isAdmin && (
           <AdminView
-            config={config} areas={areas} eppItems={eppItems} personas={personas} usuarios={usuarios}
+            config={config} areas={areas} eppItems={eppItems} personas={hrColaboradores} usuarios={usuarios}
             currentUser={currentUser}
             onConfig={persist.config} onAreas={persist.areas} onEpp={persist.epp}
-            onPersonas={persist.personas} onUsuarios={persist.usuarios}
+            onPersonas={persist.hrColaboradores} onUsuarios={persist.usuarios}
             primary={primary}
+            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones }}
           />
         )}
       </main>
 
-      {isAdmin && <BottomNav tab={tab} setTab={setTab} primary={primary} />}
+      {activeModule === "calidad" && isAdmin && <BottomNav tab={tab} setTab={setTab} primary={primary} />}
+    </div>
+  );
+}
+
+function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome, onLogout }) {
+  const moduleLabel = activeModule === "calidad" ? "Calidad" : activeModule === "talento" ? "Talento Humano" : activeModule === "admin" ? "Administracion" : "Inicio";
+  return (
+    <header className="flex items-center justify-between px-4 py-2.5 text-white sticky top-0 z-30" style={{ background: primary }}>
+      <div className="flex items-center gap-2 min-w-0">
+        {config.logo ? (
+          <img src={config.logo} className="h-7 w-7 object-contain rounded bg-white/10 p-0.5 flex-shrink-0" alt="logo" />
+        ) : (
+          <ClipboardCheck size={22} />
+        )}
+        <div className="min-w-0">
+          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
+          <p className="text-[11px] text-white/70 truncate">{moduleLabel} · {currentUser.nombre} {isAdmin && "· Admin"}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <button onClick={onHome} className="px-2 py-1.5 rounded hover:bg-white/10 text-xs font-bold">Inicio</button>
+        <button onClick={onLogout} className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"><LogOut size={18} /></button>
+      </div>
+    </header>
+  );
+}
+
+function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
+  const modules = [
+    { id: "calidad", title: "Calidad e inspecciones", description: "Inspeccion de areas, historial, analisis, hallazgos y llamados de atencion.", icon: ClipboardCheck, enabled: true },
+    { id: "talento", title: "Gestion del Talento Humano", description: "Personal unico, evaluaciones, planes de mejora, certificaciones y capacitaciones.", icon: BriefcaseBusiness, enabled: isAdmin },
+    { id: "admin", title: "Administracion global", description: "Usuarios, temas, colores, fuentes, logo, marca de agua, backup y ajustes generales del ERP.", icon: Settings, enabled: isAdmin },
+  ];
+  return (
+    <div className="py-4 space-y-4">
+      <div className="bg-white rounded-xl p-4">
+        <h1 className="text-xl font-black text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Selecciona un modulo</h1>
+        <p className="text-sm text-gray-500 mt-1">El ERP queda organizado por modulos para poder crecer sin convertir cada pantalla en un bloque enorme.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {modules.map((module) => {
+          const Icon = module.icon;
+          return (
+            <button
+              key={module.id}
+              disabled={!module.enabled}
+              onClick={() => onSelect(module.id)}
+              className="bg-white rounded-xl p-4 text-left border border-transparent hover:border-gray-200 disabled:opacity-45"
+            >
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: module.id === "calidad" ? `${accent}22` : `${primary}18` }}>
+                <Icon size={22} color={module.id === "calidad" ? accent : primary} />
+              </div>
+              <h2 className="font-black text-gray-800 text-base" style={{ fontFamily: "Oswald, sans-serif" }}>{module.title}</h2>
+              <p className="text-sm text-gray-500 mt-1">{module.description}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AreaInspectionView({ areas, personas, currentUser, accent, primary, onSave }) {
+  const [areaId, setAreaId] = useState(areas[0]?.id || "");
+  const [itemStates, setItemStates] = useState({});
+  const [responsableId, setResponsableId] = useState("");
+  const [observaciones, setObservaciones] = useState("");
+  const [evidencias, setEvidencias] = useState([]);
+  const [saved, setSaved] = useState(false);
+
+  const area = areas.find((a) => a.id === areaId);
+  const areaPeople = personas.filter((p) => {
+    const assigned = p.areas || (p.area ? [p.area] : []);
+    return area?.nombre ? assigned.includes(area.nombre) || !assigned.length : true;
+  });
+  const responsable = personas.find((p) => p.id === responsableId);
+  const answeredCount = area ? area.items.filter((it) => itemStates[it.id]).length : 0;
+  const totalItems = area ? area.items.length : 0;
+  const allAnswered = totalItems > 0 && answeredCount === totalItems;
+
+  const resetForm = (newAreaId = areas[0]?.id || "") => {
+    setAreaId(newAreaId);
+    setItemStates({});
+    setResponsableId("");
+    setObservaciones("");
+    setEvidencias([]);
+    setSaved(false);
+  };
+
+  const handleEvidence = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 720)));
+    setEvidencias((prev) => [...prev, ...converted]);
+    e.target.value = "";
+  };
+
+  const handleSave = async () => {
+    if (!allAnswered || !area) return;
+    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id] }));
+    const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
+    const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
+    const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
+    const base = cumpleCount + parcialCount + noCumpleCount;
+    const pct = base > 0 ? Math.round(((cumpleCount + parcialCount * 0.5) / base) * 100) : 100;
+    const insp = {
+      id: genId(),
+      fecha: todayISO(),
+      areaId: area.id,
+      areaNombre: area.nombre,
+      inspector: currentUser.nombre,
+      responsableId,
+      responsableNombre: responsable?.nombre || "",
+      items: itemsRes,
+      epp: [],
+      observaciones,
+      evidencias,
+      cumplimientoPct: pct,
+    };
+    const nuevosHallazgos = itemsRes.filter((i) => i.estado === "no_cumple").map((i) => ({
+      id: genId(),
+      inspeccionId: insp.id,
+      fecha: insp.fecha,
+      area: area.nombre,
+      descripcion: i.texto,
+      responsable: responsable?.nombre || "",
+      estado: "abierto",
+      fechaCompromiso: "",
+      notas: "",
+    }));
+    await onSave(insp, nuevosHallazgos);
+    setSaved(true);
+  };
+
+  if (saved) {
+    return (
+      <div className="bg-white rounded-xl p-6 text-center mt-6">
+        <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
+        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Inspeccion guardada</h3>
+        <p className="text-sm text-gray-500 mt-1">El registro quedo guardado correctamente.</p>
+        <button onClick={() => resetForm()} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
+          Nueva inspeccion
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1">
+            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Inspeccion de area</h2>
+            <p className="text-xs text-gray-400">Selecciona el area para cargar sus puntos de verificacion.</p>
+          </div>
+          <div className="sm:w-80">
+            <label className="text-xs font-bold text-gray-500 uppercase">Area</label>
+            <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
+              {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="bg-white rounded-xl p-3">
+          <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Users size={12} /> Responsable del area</label>
+          <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
+            <option value="">Seleccionar responsable</option>
+            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.cargo || p.rol || "Personal"}</option>)}
+          </select>
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-gray-400">{answeredCount}/{totalItems} items evaluados</p>
+            <div className="w-32 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
+            </div>
+          </div>
+        </div>
+
+        {area && (
+          <div className="bg-white rounded-xl p-3">
+            <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
+              <ListChecks size={16} /> Puntos de verificacion
+            </h3>
+            <div className="space-y-3">
+              {area.items.map((it) => (
+                <div key={it.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                  <p className="text-sm text-gray-700">{it.texto}</p>
+                  <StatusPicker value={itemStates[it.id]} onChange={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl p-3 space-y-2">
+          <label className="text-xs font-bold text-gray-500 uppercase">Observaciones y evidencias</label>
+          <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={4}
+            className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+            style={{ borderColor: "#E2E8F0" }}
+            placeholder="Describe hallazgos, condiciones del area o acciones inmediatas..." />
+          <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer" style={{ borderColor: primary, color: primary }}>
+            <ImagePlus size={16} /> Camara / archivo
+            <input type="file" accept="image/*" capture="environment" multiple onChange={handleEvidence} className="hidden" />
+          </label>
+          {evidencias.length > 0 && <p className="text-xs text-gray-400">{evidencias.length} evidencia(s) adjunta(s)</p>}
+        </div>
+
+        <button disabled={!allAnswered} onClick={handleSave}
+          className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
+          style={{ background: primary }}>
+          <Save size={18} /> Guardar inspeccion
+        </button>
+      </div>
     </div>
   );
 }
@@ -512,7 +779,7 @@ export default function App() {
 /* ---------------------------------- setup inicial ---------------------------------- */
 
 function SetupWizard({ onDone }) {
-  const [nombre, setNombre] = useState("Control de Calidad de Cocina");
+  const [nombre, setNombre] = useState("ERP Cocina Institucional");
   const [adminNombre, setAdminNombre] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -523,7 +790,7 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseñas no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "Control de Calidad de Cocina", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 100, fontFamily: "Inter, sans-serif" },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
@@ -573,7 +840,7 @@ function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
           {config.logo ? (
-            <img src={config.logo} alt="logo" className="h-14 mx-auto mb-3 object-contain" />
+            <img src={config.logo} alt="logo" className="h-12 w-12 mx-auto mb-3 object-contain rounded bg-white/10 p-1" />
           ) : (
             <div className="w-14 h-14 rounded-full mx-auto mb-3 flex items-center justify-center" style={{ background: config.colorAccent || "#F2622E" }}>
               <ClipboardCheck color="#fff" size={28} />
@@ -640,8 +907,6 @@ function BottomNav({ tab, setTab, primary }) {
     { id: "historial", label: "Historial", icon: ClipboardCheck },
     { id: "analisis", label: "Análisis", icon: BarChart3 },
     { id: "hallazgos", label: "Hallazgos", icon: AlertCircle },
-    { id: "talento", label: "Talento", icon: BriefcaseBusiness },
-    { id: "admin", label: "Admin", icon: Settings },
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30">
@@ -1023,9 +1288,11 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-xl p-4 flex items-center gap-4">
-        <StampGauge pct={promedioGeneral} />
-        <div className="flex-1 grid grid-cols-2 gap-2">
+      <div className="bg-white rounded-xl p-4 grid sm:grid-cols-[180px_1fr] gap-4 items-center">
+        <div className="flex justify-center">
+          <StampGauge pct={promedioGeneral} size={156} />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           <div className="bg-gray-50 rounded-lg p-2.5 text-center">
             <p className="text-xl font-black" style={{ color: primary }}>{inspecciones.length}</p>
             <p className="text-[10px] text-gray-400 uppercase font-bold">Inspecciones</p>
@@ -1150,14 +1417,12 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
 
 /* ---------------------------------- administración ---------------------------------- */
 
-function AdminView({ config, areas, eppItems, personas, usuarios, currentUser, onConfig, onAreas, onEpp, onPersonas, onUsuarios, primary }) {
+function AdminView({ config, areas, usuarios, currentUser, onConfig, onAreas, onUsuarios, primary, backupData }) {
   const [sub, setSub] = useState("general");
 
   const subs = [
     { id: "general", label: "General" },
     { id: "areas", label: "Áreas" },
-    { id: "epp", label: "EPP" },
-    { id: "personas", label: "Personal" },
     { id: "usuarios", label: "Usuarios" },
     { id: "acerca", label: "Acerca de" },
   ];
@@ -1174,21 +1439,23 @@ function AdminView({ config, areas, eppItems, personas, usuarios, currentUser, o
         ))}
       </div>
 
-      {sub === "general" && <AdminGeneral config={config} onConfig={onConfig} primary={primary} />}
+      {sub === "general" && <AdminGeneral config={config} onConfig={onConfig} primary={primary} backupData={backupData} />}
       {sub === "areas" && <AdminAreas areas={areas} onAreas={onAreas} primary={primary} />}
-      {sub === "epp" && <AdminEpp eppItems={eppItems} onEpp={onEpp} primary={primary} />}
-      {sub === "personas" && <AdminPersonas personas={personas} areas={areas} onPersonas={onPersonas} primary={primary} />}
       {sub === "usuarios" && <AdminUsuarios usuarios={usuarios} onUsuarios={onUsuarios} currentUser={currentUser} primary={primary} />}
       {sub === "acerca" && <AdminAcercaDe primary={primary} />}
     </div>
   );
 }
 
-function AdminGeneral({ config, onConfig, primary }) {
+function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [nombre, setNombre] = useState(config.nombre);
   const [colorPrimario, setColorPrimario] = useState(config.colorPrimario);
   const [colorAccent, setColorAccent] = useState(config.colorAccent);
   const [logo, setLogo] = useState(config.logo);
+  const [fontScale, setFontScale] = useState(config.fontScale || 100);
+  const [fontFamily, setFontFamily] = useState(config.fontFamily || "Inter, sans-serif");
+  const [watermarkLogo, setWatermarkLogo] = useState(config.watermarkLogo !== false);
+  const [inactiveStatsMonths, setInactiveStatsMonths] = useState(config.inactiveStatsMonths || 6);
   const [logoError, setLogoError] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
 
@@ -1200,7 +1467,7 @@ function AdminGeneral({ config, onConfig, primary }) {
     try {
       const dataUrl = await resizeImageToDataUrl(file, 320);
       setLogo(dataUrl);
-      await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: dataUrl });
+      await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: dataUrl, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
     } catch (err) {
       setLogoError(err.message || "No se pudo cargar la imagen.");
     } finally {
@@ -1212,10 +1479,24 @@ function AdminGeneral({ config, onConfig, primary }) {
   const quitarLogo = async () => {
     setLogo(null);
     setLogoError("");
-    await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: null });
+    await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: null, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
   };
 
-  const guardar = () => onConfig({ ...config, nombre, colorPrimario, colorAccent, logo });
+  const guardar = () => onConfig({ ...config, nombre, colorPrimario, colorAccent, logo, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
+  const descargarBackup = () => {
+    const payload = {
+      createdAt: todayISO(),
+      version: APP_VERSION,
+      ...backupData,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `backup-erp-cocina-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="bg-white rounded-xl p-3 space-y-3">
@@ -1232,6 +1513,44 @@ function AdminGeneral({ config, onConfig, primary }) {
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Palette size={12} /> Color de acento</label>
           <input type="color" value={colorAccent} onChange={(e) => setColorAccent(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
         </div>
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Tamaño de letra</label>
+          <input type="range" min="90" max="120" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
+          <p className="text-[11px] text-gray-400">{fontScale}%</p>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Tipo de letra</label>
+          <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 text-sm">
+            <option value="Inter, sans-serif">Inter</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="'Segoe UI', sans-serif">Segoe UI</option>
+            <option value="Roboto, sans-serif">Roboto</option>
+            <option value="Verdana, sans-serif">Verdana</option>
+            <option value="Tahoma, sans-serif">Tahoma</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="system-ui, sans-serif">Sistema</option>
+          </select>
+        </div>
+        <label className="flex items-center gap-2 text-sm font-semibold mt-5">
+          <input type="checkbox" checked={watermarkLogo} onChange={(e) => setWatermarkLogo(e.target.checked)} />
+          Logo como marca de agua
+        </label>
+      </div>
+
+      <div>
+        <label className="text-xs font-bold text-gray-500 uppercase">Meses para mantener inactivos en estadisticas</label>
+        <input type="number" min="0" max="60" value={inactiveStatsMonths} onChange={(e) => setInactiveStatsMonths(Number(e.target.value))} className="w-full border rounded-md px-3 py-2 mt-1 text-sm" />
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-3">
+        <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Backup de informacion</h3>
+        <p className="text-xs text-gray-500 mt-1">El ERP guarda un respaldo local automatico y tambien puedes descargar una copia JSON para proteger la informacion diligenciada.</p>
+        <button onClick={descargarBackup} className="mt-2 px-3 py-2 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>
+          Descargar backup
+        </button>
       </div>
 
       <div>
