@@ -19,6 +19,14 @@ const DEFAULT_TEMPLATE = [
   { group: "Desempeno laboral", performanceOnly: true, items: ["Cumplimiento de metas", "Puntualidad y asistencia", "Servicio al cliente", "Cumplimiento de BPM", "Liderazgo operativo"] },
 ];
 
+const SERVICE_TEMPLATE = [
+  { group: "Atencion al cliente", items: ["Saludo y bienvenida", "Escucha activa", "Amabilidad y lenguaje adecuado", "Manejo respetuoso de quejas", "Orientacion clara al usuario"] },
+  { group: "Operacion de servicio", items: ["Conocimiento del menu o portafolio", "Agilidad en la atencion", "Orden del punto de servicio", "Presentacion personal", "Registro correcto de solicitudes"] },
+  { group: "Comunicacion", items: ["Comunica novedades a cocina o administracion", "Trabajo coordinado con el equipo", "Confirma requerimientos especiales", "Evita discusiones frente al cliente"] },
+  { group: "Cumplimiento", items: ["Puntualidad y asistencia", "Cumplimiento de protocolos", "Manejo higienico durante el servicio", "Cuidado de equipos y elementos asignados"] },
+  { group: "Mejora del servicio", performanceOnly: true, items: ["Seguimiento a clientes frecuentes", "Propuesta de mejoras", "Resolucion preventiva de novedades", "Cumplimiento de metas de satisfaccion"] },
+];
+
 const CERT_TYPES = ["Manipulacion de alimentos", "Examenes medicos", "Curso interno", "Certificacion obligatoria"];
 const REVIEW_PERIODS = ["Mensual", "Trimestral", "Semestral", "Anual"];
 const PIE_COLORS = ["#1E7A46", "#B4750E", "#B5333D"];
@@ -122,6 +130,7 @@ function evaluationHtml(e, colaborador, plan) {
     <div class="label">Area</div><div>${escapeHtml(colaborador?.area || colaborador?.areas?.[0] || "")}</div>
     <div class="label">Fecha</div><div>${escapeHtml(fmtFecha(e.fecha))}</div>
     <div class="label">Tipo</div><div>${escapeHtml(evaluationTypeLabel(e))}</div>
+    <div class="label">Perfil</div><div>${escapeHtml(e.perfil === "servicio" ? "Servicio al cliente" : "Cocina")}</div>
     <div class="label">Evaluador</div><div>${escapeHtml(e.evaluador || "")}</div>
   </div>
   <div class="box">
@@ -148,6 +157,7 @@ function accumulatedHtml(colaborador, evaluaciones, planes) {
     <tr>
       <td>${escapeHtml(fmtFecha(e.fecha))}</td>
       <td>${escapeHtml(evaluationTypeLabel(e))}</td>
+      <td>${escapeHtml(e.perfil === "servicio" ? "Servicio al cliente" : "Cocina")}</td>
       <td>${escapeHtml(e.evaluador || "")}</td>
       <td>${e.resultado?.percentage || 0}%</td>
       <td>${escapeHtml(e.resultado?.level || "")}</td>
@@ -164,7 +174,7 @@ function accumulatedHtml(colaborador, evaluaciones, planes) {
 <h1>Reporte acumulado de evaluaciones</h1>
 <div class="box"><b>Colaborador:</b> ${escapeHtml(colaborador.nombre)}<br><b>Cargo:</b> ${escapeHtml(colaborador.cargo || colaborador.rol || "")}<br><b>Area:</b> ${escapeHtml(colaborador.area || colaborador.areas?.[0] || "")}<br><b>Total evaluaciones:</b> ${ordered.length}</div>
 <h2>Evaluaciones con observaciones</h2>
-<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Evaluador</th><th>Resultado</th><th>Nivel</th><th>Observaciones</th></tr></thead><tbody>${rows}</tbody></table>
+<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Perfil</th><th>Evaluador</th><th>Resultado</th><th>Nivel</th><th>Observaciones</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Planes de mejora</h2>
 ${planRows ? `<table><thead><tr><th>Estado</th><th>Hallazgos</th><th>Acciones</th><th>Responsable</th><th>Compromiso</th></tr></thead><tbody>${planRows}</tbody></table>` : '<div class="box">Sin planes de mejora asociados.</div>'}
 </body></html>`;
@@ -217,8 +227,13 @@ function getTemplate(config) {
   return config?.hrTemplate?.length ? config.hrTemplate : DEFAULT_TEMPLATE;
 }
 
-function criteriaFor(type, config) {
-  return getTemplate(config)
+function getEvaluationTemplate(config, profile = "cocina") {
+  if (profile === "servicio") return config?.hrServiceTemplate?.length ? config.hrServiceTemplate : SERVICE_TEMPLATE;
+  return getTemplate(config);
+}
+
+function criteriaFor(type, config, profile = "cocina") {
+  return getEvaluationTemplate(config, profile)
     .filter((section) => type === "desempeno" || !section.performanceOnly)
     .flatMap((section) => section.items.map((text) => ({
       id: genId(),
@@ -353,6 +368,7 @@ export default function TalentoHumanoView({
     { id: "dashboard", label: "Dashboard" },
     { id: "colaboradores", label: "Colaboradores" },
     { id: "evaluaciones", label: "Evaluaciones" },
+    { id: "historial", label: "Historial" },
     { id: "planes", label: "Planes" },
     { id: "capacitaciones", label: "Capacitaciones" },
     { id: "indicadores", label: "Indicadores" },
@@ -382,6 +398,7 @@ export default function TalentoHumanoView({
       {sub === "dashboard" && <Dashboard stats={stats} colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} primary={primary} accent={accent} />}
       {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
       {sub === "evaluaciones" && <Evaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} currentUser={currentUser} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
+      {sub === "historial" && <HistorialEvaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} primary={primary} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
       {sub === "planes" && <Planes planes={planes} colaboradores={colaboradores} primary={primary} onPlanes={onPlanes} />}
       {sub === "capacitaciones" && <Capacitaciones capacitaciones={capacitaciones} colaboradores={colaboradores} primary={primary} onCapacitaciones={onCapacitaciones} />}
       {sub === "indicadores" && <Indicadores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} capacitaciones={capacitaciones} certificaciones={certificaciones} primary={primary} />}
@@ -468,12 +485,14 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
 
   const save = () => {
     if (!form.nombre.trim()) return;
+    const existing = colaboradores.find((c) => c.id === editId);
     const payload = {
       ...form,
       nombre: form.nombre.trim(),
       documento: form.documento.trim(),
       rol: form.cargo,
       areas: form.area ? [form.area] : [],
+      foto: form.foto || existing?.foto || null,
       inactiveDate: form.estado === "Inactivo" || form.estado === "Retirado" ? (form.inactiveDate || dateOnly(new Date())) : "",
     };
     if (editId) {
@@ -539,6 +558,12 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
             <ImagePlus size={15} /> {form.foto ? "Cambiar foto" : "Foto opcional"}
             <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
           </label>
+          {form.foto && (
+            <div className="flex items-center justify-center gap-2 bg-gray-50 rounded-md px-3 py-2">
+              <img src={form.foto} alt="" className="w-12 h-12 rounded-md object-cover border" />
+              <button type="button" onClick={() => setForm({ ...form, foto: null })} className="text-xs font-bold text-red-600">Quitar foto</button>
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <button onClick={save} className="flex-1 py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>{editId ? "Guardar cambios" : "Agregar colaborador"}</button>
@@ -737,23 +762,98 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
     </Modal>
   );
 }
+
+function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, onEvaluaciones, onPlanes }) {
+  const [colaboradorId, setColaboradorId] = useState("todos");
+  const [perfil, setPerfil] = useState("todos");
+  const filtradas = evaluaciones
+    .filter((e) => colaboradorId === "todos" || e.colaboradorId === colaboradorId)
+    .filter((e) => perfil === "todos" || (e.perfil || "cocina") === perfil)
+    .slice()
+    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+  const deleteEvaluation = (id) => {
+    if (!window.confirm("Eliminar esta evaluacion?")) return;
+    onEvaluaciones(evaluaciones.filter((e) => e.id !== id));
+    onPlanes(planes.filter((p) => p.evaluationId !== id));
+  };
+
+  const openEvaluationReport = (e) => {
+    const person = colaboradores.find((c) => c.id === e.colaboradorId);
+    const plan = planes.find((p) => p.evaluationId === e.id);
+    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan));
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3">
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h3>
+        <div className="grid sm:grid-cols-2 gap-2">
+          <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            <option value="todos">Todos los colaboradores</option>
+            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <select value={perfil} onChange={(e) => setPerfil(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            <option value="todos">Todos los perfiles</option>
+            <option value="cocina">Cocina</option>
+            <option value="servicio">Servicio al cliente</option>
+          </select>
+        </div>
+      </div>
+
+      {filtradas.length === 0 ? (
+        <p className="text-center text-sm text-gray-400 py-8">Sin evaluaciones registradas.</p>
+      ) : (
+        <div className="space-y-2">
+          {filtradas.map((e) => (
+            <div key={e.id} className="bg-white rounded-xl p-3 border border-gray-100">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm truncate">{e.colaboradorNombre}</p>
+                  <p className="text-xs text-gray-400">{evaluationTypeLabel(e)} · {e.perfil === "servicio" ? "Servicio al cliente" : "Cocina"} · {fmtFecha(e.fecha)}</p>
+                  <p className="text-xs text-gray-500 mt-1">{e.resultado?.level} · {e.resultado?.recommendation}</p>
+                  {e.observaciones && <p className="text-xs text-gray-600 mt-1">{e.observaciones}</p>}
+                </div>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
+                  <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                    <FileText size={12} /> PDF
+                  </button>
+                  <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
+                    <Trash2 size={12} /> Eliminar
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primary, config, onEvaluaciones, onPlanes }) {
   const [type, setType] = useState("ingreso");
+  const [profile, setProfile] = useState("cocina");
   const [colaboradorId, setColaboradorId] = useState(colaboradores[0]?.id || "");
   const [periodicidad, setPeriodicidad] = useState(REVIEW_PERIODS[0]);
-  const [criteria, setCriteria] = useState(() => criteriaFor("ingreso", config));
+  const [criteria, setCriteria] = useState(() => criteriaFor("ingreso", config, "cocina"));
   const [generalNotes, setGeneralNotes] = useState("");
   const [saved, setSaved] = useState(null);
   const colaborador = colaboradores.find((c) => c.id === colaboradorId);
   const result = calculateResult(criteria);
 
-  const grouped = getTemplate(config)
+  const grouped = getEvaluationTemplate(config, profile)
     .filter((section) => type === "desempeno" || !section.performanceOnly)
     .map((section) => ({ ...section, criteria: criteria.filter((c) => c.group === section.group) }));
 
   const changeType = (next) => {
     setType(next);
-    setCriteria(criteriaFor(next, config));
+    setCriteria(criteriaFor(next, config, profile));
+  };
+
+  const changeProfile = (next) => {
+    setProfile(next);
+    setCriteria(criteriaFor(type, config, next));
   };
 
   const save = () => {
@@ -762,6 +862,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
       id: genId(),
       tipo: type,
       periodicidad: type === "desempeno" ? periodicidad : "Ingreso",
+      perfil: profile,
       fecha: todayISO(),
       colaboradorId: colaborador.id,
       colaboradorNombre: colaborador.nombre,
@@ -787,7 +888,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
       }, ...planes]);
     }
     setSaved(evaluation);
-    setCriteria(criteriaFor(type, config));
+    setCriteria(criteriaFor(type, config, profile));
     setGeneralNotes("");
   };
 
@@ -806,10 +907,14 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <div className="grid sm:grid-cols-3 gap-2">
+        <div className="grid sm:grid-cols-4 gap-2">
           <select value={type} onChange={(e) => changeType(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
             <option value="ingreso">Evaluacion tecnica de ingreso</option>
             <option value="desempeno">Evaluacion de desempeno</option>
+          </select>
+          <select value={profile} onChange={(e) => changeProfile(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            <option value="cocina">Perfil cocina</option>
+            <option value="servicio">Perfil servicio al cliente</option>
           </select>
           <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
             <option value="">Selecciona colaborador</option>
@@ -859,7 +964,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-bold text-sm truncate">{e.colaboradorNombre}</p>
-                    <p className="text-xs text-gray-400">{e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad}`} · {fmtFecha(e.fecha)}</p>
+                    <p className="text-xs text-gray-400">{evaluationTypeLabel(e)} · {e.perfil === "servicio" ? "Servicio al cliente" : "Cocina"} · {fmtFecha(e.fecha)}</p>
                     <p className="text-xs text-gray-500 mt-1">{e.resultado?.level} · {e.resultado?.recommendation}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">

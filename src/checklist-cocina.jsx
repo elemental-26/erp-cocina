@@ -5,7 +5,7 @@ import {
   Settings, Users, BarChart3, ListChecks, LogOut, Plus, Trash2, Pencil,
   Lock, ChevronRight, Download, ShieldCheck, AlertCircle, UserPlus,
   Palette, ImagePlus, X, Save, Building2, Check, Info, KeyRound,
-  BriefcaseBusiness
+  BriefcaseBusiness, FileText
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -32,11 +32,12 @@ import * as XLSX from "xlsx";
    patrÃ³n: nueva colecciÃ³n + nueva vista + nueva pestaÃ±a en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 const APP_VERSION_DATE = "2026-08-03";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
-  { version: "1.3.0", fecha: APP_VERSION_DATE, cambios: "Lista EPP independiente en Calidad, llamados de atencion descargables/enviables, reportes individuales y acumulados de talento humano con observaciones, graficas y registro fotografico." },
+  { version: "1.4.0", fecha: APP_VERSION_DATE, cambios: "Impresion de inspecciones y listas de chequeo, evaluacion diferenciada para servicio al cliente, historial superior de evaluaciones y conservacion reforzada de fotografias de colaboradores." },
+  { version: "1.3.0", fecha: "2026-08-03", cambios: "Lista EPP independiente en Calidad, llamados de atencion descargables/enviables, reportes individuales y acumulados de talento humano con observaciones, graficas y registro fotografico." },
   { version: "1.2.0", fecha: "2026-07-31", cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
   { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
   { version: "1.0.0", fecha: "2026-07-19", cambios: "Versión inicial: checklist por áreas, evaluación de EPP, historial exportable, análisis acumulado y seguimiento de hallazgos." },
@@ -695,6 +696,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
       inspector: currentUser.nombre,
       responsableId,
       responsableNombre: responsable?.nombre || "",
+      responsableFoto: responsable?.foto || null,
       items: itemsRes,
       epp: [],
       observaciones,
@@ -714,6 +716,16 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     }));
     await onSave(insp, nuevosHallazgos);
     setSaved(true);
+  };
+
+  const printBlankChecklist = () => {
+    if (!area) return;
+    openPrintDocument(`Lista de chequeo - ${area.nombre}`, checklistPrintHtml({
+      title: `Lista de chequeo - ${area.nombre}`,
+      subtitle: "Formato para inspeccion de area.",
+      items: area.items,
+      primary,
+    }));
   };
 
   if (saved) {
@@ -742,6 +754,9 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
               {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
+            <button onClick={printBlankChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+              <FileText size={15} /> Imprimir lista
+            </button>
           </div>
         </div>
       </div>
@@ -845,7 +860,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       responsableId: persona.id,
       responsableNombre: persona.nombre,
       items: [],
-      epp: [{ personaId: persona.id, personaNombre: persona.nombre, rol: persona.cargo || persona.rol || "", items: itemsRes }],
+      epp: [{ personaId: persona.id, personaNombre: persona.nombre, rol: persona.cargo || persona.rol || "", foto: persona.foto || null, items: itemsRes }],
       observaciones,
       evidencias,
       cumplimientoPct: pct,
@@ -863,6 +878,15 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     }));
     await onSave(insp, nuevosHallazgos);
     setSaved(true);
+  };
+
+  const printEppChecklist = () => {
+    openPrintDocument("Lista de verificacion EPP", checklistPrintHtml({
+      title: "Lista de verificacion EPP",
+      subtitle: persona ? `Formato para ${persona.nombre}` : "Formato para verificacion del colaborador.",
+      items: eppItems,
+      primary,
+    }));
   };
 
   if (saved) {
@@ -892,6 +916,9 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
               <option value="">Seleccionar colaborador</option>
               {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
             </select>
+            <button onClick={printEppChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+              <FileText size={15} /> Imprimir lista EPP
+            </button>
           </div>
         </div>
       </div>
@@ -1332,6 +1359,10 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
     }
   };
 
+  const imprimirDetalle = () => {
+    openPrintDocument(`Inspeccion - ${detalle.areaNombre}`, inspectionPrintHtml(detalle, primary));
+  };
+
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -1364,6 +1395,15 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
       {detalle && (
         <Modal title={detalle.areaNombre} onClose={() => { setDetalle(null); setEditando(false); }} wide>
           <p className="text-xs text-gray-400 mb-3">{fmtFecha(detalle.fecha)} Â· Inspector: {detalle.inspector}</p>
+          {detalle.responsableFoto && (
+            <div className="mb-3 flex items-center justify-center gap-3 bg-gray-50 rounded-lg p-2">
+              <img src={detalle.responsableFoto} alt="" className="w-14 h-14 rounded-md object-cover border" />
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase">Responsable</p>
+                <p className="text-sm font-bold text-gray-700">{detalle.responsableNombre || "Sin responsable"}</p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             {(editando ? draft : detalle).items.map((it, idx) => (
@@ -1405,9 +1445,21 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
             </div>
           )}
 
+          {detalle.evidencias?.length > 0 && (
+            <div className="mt-3">
+              <h4 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Registro fotografico</h4>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {detalle.evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 mt-4">
             {!editando ? (
               <>
+                <button onClick={imprimirDetalle} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+                  <FileText size={14} /> Imprimir
+                </button>
                 <button onClick={startEdit} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
                   <Pencil size={14} /> Editar
                 </button>
@@ -1519,6 +1571,15 @@ const ESTADOS_HALLAZGO = [
   { value: "cerrado", label: "Cerrado", color: "#1E7A46", bg: "#E4F4EA" },
 ];
 
+function openPrintDocument(title, html) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 250);
+}
+
 const normalizeText = (value = "") => value.toString().trim().toLowerCase();
 
 function hallazgoKey(h) {
@@ -1542,6 +1603,80 @@ function downloadTextFile(filename, content, type = "text/html;charset=utf-8") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function statusRowsHtml(items = []) {
+  return items.map((it) => `
+    <tr>
+      <td>${escapeHtml(it.texto)}</td>
+      <td>${escapeHtml(statusInfo(it.estado).label)}</td>
+    </tr>
+  `).join("");
+}
+
+function evidenceHtml(evidencias = []) {
+  if (!evidencias.length) return '<div class="box">Sin registro fotografico.</div>';
+  return `<div class="photos">${evidencias.map((src) => `<img src="${src}" />`).join("")}</div>`;
+}
+
+function checklistPrintHtml({ title, subtitle, items, primary }) {
+  const rows = (items || []).map((it) => `
+    <tr>
+      <td>${escapeHtml(it.texto)}</td>
+      <td class="mark"></td>
+      <td class="mark"></td>
+      <td class="mark"></td>
+      <td class="mark"></td>
+      <td></td>
+    </tr>
+  `).join("");
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
+<style>
+body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.35}
+h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}p{margin:0 0 14px}
+table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #d1d5db;padding:8px;font-size:12px;vertical-align:top}th{background:#f3f4f6}.mark{width:70px;height:26px}
+.header{border-bottom:3px solid ${primary};padding-bottom:10px}.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}
+</style></head><body>
+<div class="header"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div>
+<table><thead><tr><th>Item</th><th>Cumple</th><th>Parcial</th><th>No cumple</th><th>N/A</th><th>Observacion</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="sign"><div class="line">Inspector</div><div class="line">Responsable</div></div>
+</body></html>`;
+}
+
+function inspectionPrintHtml(inspeccion, primary) {
+  const eppBlocks = (inspeccion.epp || []).map((pe) => `
+    <div class="person">
+      ${pe.foto ? `<img src="${pe.foto}" />` : ""}
+      <div><h3>${escapeHtml(pe.personaNombre)}</h3><p>${escapeHtml(pe.rol || "")}</p></div>
+    </div>
+    <table><thead><tr><th>Item EPP</th><th>Estado</th></tr></thead><tbody>${statusRowsHtml(pe.items)}</tbody></table>
+  `).join("");
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8" /><title>Inspeccion ${escapeHtml(inspeccion.areaNombre)}</title>
+<style>
+body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}h3{margin:0;font-size:14px}
+.header{border-bottom:3px solid ${primary};padding-bottom:10px}.meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}.meta{display:grid;grid-template-columns:160px 1fr;gap:6px 14px}.label{font-weight:700;color:#4b5563}
+.score{font-size:34px;font-weight:800;color:${(inspeccion.cumplimientoPct || 0) >= 75 ? "#1E7A46" : "#B5333D"}}
+table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}.person{display:flex;gap:10px;align-items:center;margin:12px 0 6px}.person img,.avatar{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin-right:10px;vertical-align:middle}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}
+</style></head><body>
+<div class="header"><h1>${inspeccion.tipo === "epp" ? "Verificacion EPP" : "Inspeccion de area"}</h1><p>Registro generado desde el ERP.</p></div>
+<div class="meta">
+<div class="label">Fecha</div><div>${escapeHtml(fmtFecha(inspeccion.fecha))}</div>
+<div class="label">Area</div><div>${escapeHtml(inspeccion.areaNombre || "")}</div>
+<div class="label">Inspector</div><div>${escapeHtml(inspeccion.inspector || "")}</div>
+<div class="label">Responsable</div><div>${inspeccion.responsableFoto ? `<img class="avatar" src="${inspeccion.responsableFoto}" />` : ""}${escapeHtml(inspeccion.responsableNombre || "")}</div>
+</div>
+<div class="box"><div class="score">${inspeccion.cumplimientoPct || 0}%</div><p>Cumplimiento registrado</p></div>
+${(inspeccion.items || []).length ? `<h2>Puntos de verificacion</h2><table><thead><tr><th>Item</th><th>Estado</th></tr></thead><tbody>${statusRowsHtml(inspeccion.items)}</tbody></table>` : ""}
+${eppBlocks ? `<h2>Lista de EPP</h2>${eppBlocks}` : ""}
+<h2>Observaciones</h2><div class="box">${escapeHtml(inspeccion.observaciones || "Sin observaciones.")}</div>
+<h2>Registro fotografico</h2>${evidenceHtml(inspeccion.evidencias)}
+<div class="sign"><div class="line">Inspector</div><div class="line">Responsable</div></div>
+</body></html>`;
 }
 
 function HallazgosView({ hallazgos, onUpdate, primary }) {
