@@ -32,11 +32,12 @@ import * as XLSX from "xlsx";
    patrÃ³n: nueva colecciÃ³n + nueva vista + nueva pestaÃ±a en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.2.0";
-const APP_VERSION_DATE = "2026-07-31";
+const APP_VERSION = "1.3.0";
+const APP_VERSION_DATE = "2026-08-03";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
-  { version: "1.2.0", fecha: APP_VERSION_DATE, cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
+  { version: "1.3.0", fecha: APP_VERSION_DATE, cambios: "Lista EPP independiente en Calidad, llamados de atencion descargables/enviables, reportes individuales y acumulados de talento humano con observaciones, graficas y registro fotografico." },
+  { version: "1.2.0", fecha: "2026-07-31", cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
   { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
   { version: "1.0.0", fecha: "2026-07-19", cambios: "Versión inicial: checklist por áreas, evaluación de EPP, historial exportable, análisis acumulado y seguimiento de hallazgos." },
 ];
@@ -522,6 +523,19 @@ export default function App() {
             }}
           />
         )}
+        {activeModule === "calidad" && tab === "epp" && (
+          <EppChecklistView
+            eppItems={eppItems}
+            personas={activeColaboradores}
+            currentUser={currentUser}
+            primary={primary}
+            accent={accent}
+            onSave={async (insp, nuevosHallazgos) => {
+              await persist.inspecciones([insp, ...inspecciones]);
+              if (nuevosHallazgos.length) await persist.hallazgos([...nuevosHallazgos, ...hallazgos]);
+            }}
+          />
+        )}
         {activeModule === "calidad" && isAdmin && tab === "historial" && (
           <HistorialView
             inspecciones={inspecciones} areas={areas} primary={primary}
@@ -786,6 +800,149 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   );
 }
 
+function EppChecklistView({ eppItems, personas, currentUser, primary, accent, onSave }) {
+  const [personaId, setPersonaId] = useState(personas[0]?.id || "");
+  const [itemStates, setItemStates] = useState({});
+  const [observaciones, setObservaciones] = useState("");
+  const [evidencias, setEvidencias] = useState([]);
+  const [saved, setSaved] = useState(false);
+
+  const persona = personas.find((p) => p.id === personaId);
+  const answeredCount = eppItems.filter((it) => itemStates[it.id]).length;
+  const totalItems = eppItems.length;
+  const allAnswered = totalItems > 0 && answeredCount === totalItems && persona;
+
+  const resetForm = () => {
+    setPersonaId(personas[0]?.id || "");
+    setItemStates({});
+    setObservaciones("");
+    setEvidencias([]);
+    setSaved(false);
+  };
+
+  const handleEvidence = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 720)));
+    setEvidencias((prev) => [...prev, ...converted]);
+    e.target.value = "";
+  };
+
+  const handleSave = async () => {
+    if (!allAnswered) return;
+    const itemsRes = eppItems.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id] }));
+    const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
+    const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
+    const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
+    const base = cumpleCount + parcialCount + noCumpleCount;
+    const pct = base > 0 ? Math.round(((cumpleCount + parcialCount * 0.5) / base) * 100) : 100;
+    const insp = {
+      id: genId(),
+      tipo: "epp",
+      fecha: todayISO(),
+      areaId: "",
+      areaNombre: persona.area || persona.areas?.[0] || "EPP",
+      inspector: currentUser.nombre,
+      responsableId: persona.id,
+      responsableNombre: persona.nombre,
+      items: [],
+      epp: [{ personaId: persona.id, personaNombre: persona.nombre, rol: persona.cargo || persona.rol || "", items: itemsRes }],
+      observaciones,
+      evidencias,
+      cumplimientoPct: pct,
+    };
+    const nuevosHallazgos = itemsRes.filter((i) => i.estado === "no_cumple").map((i) => ({
+      id: genId(),
+      inspeccionId: insp.id,
+      fecha: insp.fecha,
+      area: insp.areaNombre,
+      descripcion: `EPP - ${i.texto}`,
+      responsable: persona.nombre,
+      estado: "abierto",
+      fechaCompromiso: "",
+      notas: observaciones || "",
+    }));
+    await onSave(insp, nuevosHallazgos);
+    setSaved(true);
+  };
+
+  if (saved) {
+    return (
+      <div className="bg-white rounded-xl p-6 text-center mt-6">
+        <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
+        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Verificacion EPP guardada</h3>
+        <p className="text-sm text-gray-500 mt-1">El registro quedo guardado y los incumplimientos pasaron a Hallazgos.</p>
+        <button onClick={resetForm} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
+          Nueva verificacion EPP
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <div className="flex-1">
+            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Lista de verificacion de EPP</h2>
+            <p className="text-xs text-gray-400">Usa los colaboradores activos del modulo de talento humano, sin duplicar personal.</p>
+          </div>
+          <div className="sm:w-96">
+            <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
+            <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); }} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
+              <option value="">Seleccionar colaborador</option>
+              {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-3">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-sm flex items-center justify-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
+            <ShieldCheck size={16} /> Elementos a verificar
+          </h3>
+          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} items</p>
+        </div>
+        {eppItems.length === 0 ? (
+          <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
+        ) : (
+          <div className="space-y-3">
+            {eppItems.map((it) => (
+              <div key={it.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                <p className="text-sm text-gray-700">{it.texto}</p>
+                <StatusPicker value={itemStates[it.id]} onChange={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl p-3 space-y-2">
+        <label className="text-xs font-bold text-gray-500 uppercase">Observaciones y registro fotografico</label>
+        <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={4}
+          className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          style={{ borderColor: "#E2E8F0" }}
+          placeholder="Describe incumplimientos, reposicion requerida o novedades del EPP..." />
+        <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer" style={{ borderColor: primary, color: primary }}>
+          <ImagePlus size={16} /> Camara / archivo
+          <input type="file" accept="image/*" capture="environment" multiple onChange={handleEvidence} className="hidden" />
+        </label>
+        {evidencias.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+          </div>
+        )}
+      </div>
+
+      <button disabled={!allAnswered} onClick={handleSave}
+        className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
+        style={{ background: primary }}>
+        <Save size={18} /> Guardar verificacion EPP
+      </button>
+    </div>
+  );
+}
+
 /* ---------------------------------- setup inicial ---------------------------------- */
 
 function SetupWizard({ onDone }) {
@@ -914,6 +1071,7 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
 function BottomNav({ tab, setTab, primary }) {
   const items = [
     { id: "inspeccion", label: "InspecciÃ³n", icon: ListChecks },
+    { id: "epp", label: "EPP", icon: ShieldCheck },
     { id: "historial", label: "Historial", icon: ClipboardCheck },
     { id: "analisis", label: "AnÃ¡lisis", icon: BarChart3 },
     { id: "hallazgos", label: "Hallazgos", icon: AlertCircle },
@@ -1588,12 +1746,13 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
 
 /* ---------------------------------- administraciÃ³n ---------------------------------- */
 
-function AdminView({ config, areas, usuarios, currentUser, onConfig, onAreas, onUsuarios, primary, backupData }) {
+function AdminView({ config, areas, eppItems, usuarios, currentUser, onConfig, onAreas, onEpp, onUsuarios, primary, backupData }) {
   const [sub, setSub] = useState("general");
 
   const subs = [
     { id: "general", label: "General" },
     { id: "areas", label: "Ãreas" },
+    { id: "epp", label: "EPP" },
     { id: "usuarios", label: "Usuarios" },
     { id: "acerca", label: "Acerca de" },
   ];
@@ -1612,6 +1771,7 @@ function AdminView({ config, areas, usuarios, currentUser, onConfig, onAreas, on
 
       {sub === "general" && <AdminGeneral config={config} onConfig={onConfig} primary={primary} backupData={backupData} />}
       {sub === "areas" && <AdminAreas areas={areas} onAreas={onAreas} primary={primary} />}
+      {sub === "epp" && <AdminEpp eppItems={eppItems} onEpp={onEpp} primary={primary} />}
       {sub === "usuarios" && <AdminUsuarios usuarios={usuarios} onUsuarios={onUsuarios} currentUser={currentUser} primary={primary} />}
       {sub === "acerca" && <AdminAcercaDe primary={primary} />}
     </div>

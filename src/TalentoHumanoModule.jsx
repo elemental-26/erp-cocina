@@ -42,6 +42,138 @@ function fmtFecha(iso) {
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function escapeHtml(value = "") {
+  return value.toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function evaluationTypeLabel(e) {
+  return e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad || ""}`.trim();
+}
+
+function evidenceFromEvaluation(e) {
+  return (e.criteria || []).filter((c) => c.evidence).map((c) => ({
+    title: `${c.group}: ${c.text}`,
+    src: c.evidence,
+    observation: c.observation || "",
+  }));
+}
+
+function openPrintDocument(title, html) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 250);
+}
+
+function evaluationHtml(e, colaborador, plan) {
+  const criteriaRows = (e.criteria || []).map((c) => `
+    <tr>
+      <td>${escapeHtml(c.group)}</td>
+      <td>${escapeHtml(c.text)}</td>
+      <td>${escapeHtml(c.score)}</td>
+      <td>${escapeHtml(c.observation || "")}</td>
+    </tr>
+  `).join("");
+  const evidence = evidenceFromEvaluation(e).map((ev) => `
+    <div class="photo">
+      <img src="${ev.src}" />
+      <p>${escapeHtml(ev.title)}</p>
+      <small>${escapeHtml(ev.observation)}</small>
+    </div>
+  `).join("");
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Evaluacion - ${escapeHtml(e.colaboradorNombre)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+    h1{font-size:22px;margin:0 0 6px;text-transform:uppercase}
+    h2{font-size:15px;margin:22px 0 8px}
+    .meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}
+    .meta{display:grid;grid-template-columns:170px 1fr;gap:6px 14px}
+    .label{font-weight:700;color:#4b5563}
+    .score{font-size:34px;font-weight:800;color:${(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"}}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}
+    th{background:#f3f4f6}
+    .photos{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .photo{border:1px solid #ddd;border-radius:8px;padding:8px;break-inside:avoid}
+    .photo img{max-width:100%;height:180px;object-fit:cover;border-radius:6px}
+    .firmas{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}
+    .firma{border-top:1px solid #111827;padding-top:8px;text-align:center}
+    @media print{body{margin:16mm}.photo img{height:140px}}
+  </style>
+</head>
+<body>
+  <h1>Evaluacion de talento humano</h1>
+  <p>Reporte individual generado desde el ERP.</p>
+  <div class="meta">
+    <div class="label">Colaborador</div><div>${escapeHtml(e.colaboradorNombre)}</div>
+    <div class="label">Documento</div><div>${escapeHtml(colaborador?.documento || "")}</div>
+    <div class="label">Cargo</div><div>${escapeHtml(colaborador?.cargo || colaborador?.rol || "")}</div>
+    <div class="label">Area</div><div>${escapeHtml(colaborador?.area || colaborador?.areas?.[0] || "")}</div>
+    <div class="label">Fecha</div><div>${escapeHtml(fmtFecha(e.fecha))}</div>
+    <div class="label">Tipo</div><div>${escapeHtml(evaluationTypeLabel(e))}</div>
+    <div class="label">Evaluador</div><div>${escapeHtml(e.evaluador || "")}</div>
+  </div>
+  <div class="box">
+    <div class="score">${e.resultado?.percentage || 0}%</div>
+    <p><b>Nivel:</b> ${escapeHtml(e.resultado?.level || "")}</p>
+    <p><b>Recomendacion:</b> ${escapeHtml(e.resultado?.recommendation || "")}</p>
+  </div>
+  <h2>Observaciones generales</h2>
+  <div class="box">${escapeHtml(e.observaciones || "Sin observaciones generales.")}</div>
+  <h2>Detalle de criterios</h2>
+  <table><thead><tr><th>Grupo</th><th>Criterio</th><th>Puntaje</th><th>Observacion</th></tr></thead><tbody>${criteriaRows}</tbody></table>
+  <h2>Plan de mejora</h2>
+  <div class="box">${plan ? `${escapeHtml(plan.hallazgos)}<br><b>Acciones:</b> ${escapeHtml(plan.acciones)}<br><b>Responsable:</b> ${escapeHtml(plan.responsable)}<br><b>Compromiso:</b> ${escapeHtml(plan.fechaCompromiso)}<br><b>Estado:</b> ${escapeHtml(plan.estado)}` : "No aplica."}</div>
+  <h2>Registro fotografico</h2>
+  ${evidence ? `<div class="photos">${evidence}</div>` : '<div class="box">Sin registro fotografico.</div>'}
+  <div class="firmas"><div class="firma">Colaborador</div><div class="firma">Evaluador</div></div>
+</body>
+</html>`;
+}
+
+function accumulatedHtml(colaborador, evaluaciones, planes) {
+  const ordered = evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  const rows = ordered.map((e) => `
+    <tr>
+      <td>${escapeHtml(fmtFecha(e.fecha))}</td>
+      <td>${escapeHtml(evaluationTypeLabel(e))}</td>
+      <td>${escapeHtml(e.evaluador || "")}</td>
+      <td>${e.resultado?.percentage || 0}%</td>
+      <td>${escapeHtml(e.resultado?.level || "")}</td>
+      <td>${escapeHtml(e.observaciones || "")}</td>
+    </tr>
+  `).join("");
+  const planRows = plansForColaborador(planes, colaborador.id).map((p) => `
+    <tr><td>${escapeHtml(p.estado)}</td><td>${escapeHtml(p.hallazgos)}</td><td>${escapeHtml(p.acciones)}</td><td>${escapeHtml(p.responsable)}</td><td>${escapeHtml(p.fechaCompromiso)}</td></tr>
+  `).join("");
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8" /><title>Acumulado - ${escapeHtml(colaborador.nombre)}</title>
+<style>body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}h1{font-size:22px;margin:0 0 6px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}</style>
+</head><body>
+<h1>Reporte acumulado de evaluaciones</h1>
+<div class="box"><b>Colaborador:</b> ${escapeHtml(colaborador.nombre)}<br><b>Cargo:</b> ${escapeHtml(colaborador.cargo || colaborador.rol || "")}<br><b>Area:</b> ${escapeHtml(colaborador.area || colaborador.areas?.[0] || "")}<br><b>Total evaluaciones:</b> ${ordered.length}</div>
+<h2>Evaluaciones con observaciones</h2>
+<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Evaluador</th><th>Resultado</th><th>Nivel</th><th>Observaciones</th></tr></thead><tbody>${rows}</tbody></table>
+<h2>Planes de mejora</h2>
+${planRows ? `<table><thead><tr><th>Estado</th><th>Hallazgos</th><th>Acciones</th><th>Responsable</th><th>Compromiso</th></tr></thead><tbody>${planRows}</tbody></table>` : '<div class="box">Sin planes de mejora asociados.</div>'}
+</body></html>`;
+}
+
+function plansForColaborador(planes, colaboradorId) {
+  return (planes || []).filter((p) => p.colaboradorId === colaboradorId);
+}
+
 function daysUntil(date) {
   if (!date) return 9999;
   const today = new Date();
@@ -248,7 +380,7 @@ export default function TalentoHumanoView({
       </div>
 
       {sub === "dashboard" && <Dashboard stats={stats} colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} primary={primary} accent={accent} />}
-      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
+      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
       {sub === "evaluaciones" && <Evaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} currentUser={currentUser} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
       {sub === "planes" && <Planes planes={planes} colaboradores={colaboradores} primary={primary} onPlanes={onPlanes} />}
       {sub === "capacitaciones" && <Capacitaciones capacitaciones={capacitaciones} colaboradores={colaboradores} primary={primary} onCapacitaciones={onCapacitaciones} />}
@@ -328,7 +460,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
   );
 }
 
-function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, usuarios, primary, onColaboradores, onCertificaciones }) {
+function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, areas, usuarios, primary, onColaboradores, onCertificaciones }) {
   const blank = { nombre: "", documento: "", cargo: "", area: areas[0]?.nombre || "", areas: areas[0]?.nombre ? [areas[0].nombre] : [], fechaIngreso: dateOnly(new Date()), estado: "Activo", inactiveDate: "", supervisor: "", foto: null };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
@@ -477,6 +609,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
         <CollaboratorDetail
           colaborador={detail}
           evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)}
+          planes={planesForColaborador(planes, detail.id)}
           certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)}
           onClose={() => setDetail(null)}
           onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])}
@@ -487,8 +620,20 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
   );
 }
 
-function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClose, onAddCert, primary }) {
+function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones, onClose, onAddCert, primary }) {
   const [cert, setCert] = useState({ tipo: CERT_TYPES[0], vencimiento: "", alertaDias: 30, notas: "" });
+  const orderedEvaluaciones = evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  const chartData = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).map((e) => ({
+    fecha: fmtFecha(e.fecha),
+    resultado: e.resultado?.percentage || 0,
+  }));
+  const latest = orderedEvaluaciones[0];
+  const average = evaluaciones.length
+    ? Math.round(evaluaciones.reduce((sum, e) => sum + (e.resultado?.percentage || 0), 0) / evaluaciones.length)
+    : 0;
+  const openIndividual = (e) => openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, colaborador, planes.find((p) => p.evaluationId === e.id)));
+  const openAccumulated = () => openPrintDocument(`Acumulado - ${colaborador.nombre}`, accumulatedHtml(colaborador, evaluaciones, planes));
+
   return (
     <Modal title={colaborador.nombre} onClose={onClose} wide>
       <div className="text-sm text-gray-600 space-y-1">
@@ -499,18 +644,77 @@ function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClos
         <p><b>Supervisor:</b> {colaborador.supervisor || "Sin supervisor"}</p>
       </div>
 
+      <div className="grid sm:grid-cols-[170px_1fr] gap-3 mt-4">
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-xs text-gray-400 font-bold uppercase">Promedio individual</p>
+          <p className="text-3xl font-black" style={{ color: average >= 75 ? "#1E7A46" : "#B5333D" }}>{average}%</p>
+          <p className="text-xs text-gray-500">{evaluaciones.length} evaluacion(es)</p>
+          {latest && <Badge color={latest.resultado?.percentage >= 75 ? "#1E7A46" : "#B5333D"} bg={latest.resultado?.percentage >= 75 ? "#E4F4EA" : "#FBE7E8"}>Ultima {latest.resultado?.percentage || 0}%</Badge>}
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 h-48">
+          {chartData.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="resultado" stroke={primary} strokeWidth={3} dot />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-sm text-gray-400 py-14 text-center">Sin datos para graficar.</p>
+          )}
+        </div>
+      </div>
+
+      <button
+        onClick={openAccumulated}
+        disabled={!evaluaciones.length}
+        className="w-full mt-3 py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
+        style={{ background: primary }}
+      >
+        <FileText size={15} /> Descargar PDF acumulado con observaciones
+      </button>
+
       <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">
         {evaluaciones.length === 0 && <p className="text-xs text-gray-400">Sin evaluaciones registradas.</p>}
-        {evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
-          <div key={e.id} className="border rounded-lg p-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-bold">{e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad}`}</p>
-              <Badge color={e.resultado.percentage >= 75 ? "#1E7A46" : "#B5333D"} bg={e.resultado.percentage >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado.percentage}%</Badge>
+        {orderedEvaluaciones.map((e) => {
+          const evidence = evidenceFromEvaluation(e);
+          const plan = planes.find((p) => p.evaluationId === e.id);
+          return (
+            <div key={e.id} className="border rounded-lg p-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold">{evaluationTypeLabel(e)}</p>
+                <Badge color={e.resultado.percentage >= 75 ? "#1E7A46" : "#B5333D"} bg={e.resultado.percentage >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado.percentage}%</Badge>
+              </div>
+              <p className="text-xs text-gray-400">{fmtFecha(e.fecha)} · {e.resultado.level} · {e.resultado.recommendation}</p>
+              <div className="mt-2 bg-gray-50 rounded-md p-2">
+                <p className="text-xs font-bold text-gray-500 uppercase">Observaciones</p>
+                <p className="text-sm text-gray-600">{e.observaciones || "Sin observaciones generales."}</p>
+              </div>
+              {plan && (
+                <div className="mt-2 bg-orange-50 border border-orange-100 rounded-md p-2">
+                  <p className="text-xs font-bold text-orange-700 uppercase">Plan de mejora</p>
+                  <p className="text-sm text-gray-700">{plan.hallazgos}</p>
+                  <p className="text-xs text-gray-500 mt-1">{plan.acciones} · Responsable: {plan.responsable} · Estado: {plan.estado}</p>
+                </div>
+              )}
+              {evidence.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-1">Registro fotografico</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {evidence.map((ev, index) => <img key={index} src={ev.src} alt="" title={ev.title} className="h-20 w-full object-cover rounded-md border" />)}
+                  </div>
+                </div>
+              )}
+              <button onClick={() => openIndividual(e)} className="mt-2 w-full py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1" style={{ color: primary, borderColor: primary }}>
+                <Download size={13} /> Descargar PDF individual
+              </button>
             </div>
-            <p className="text-xs text-gray-400">{fmtFecha(e.fecha)} · {e.resultado.level} · {e.resultado.recommendation}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Certificaciones</h4>
@@ -533,7 +737,6 @@ function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClos
     </Modal>
   );
 }
-
 function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primary, config, onEvaluaciones, onPlanes }) {
   const [type, setType] = useState("ingreso");
   const [colaboradorId, setColaboradorId] = useState(colaboradores[0]?.id || "");
@@ -592,6 +795,12 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
     if (!window.confirm("Eliminar esta evaluacion?")) return;
     onEvaluaciones(evaluaciones.filter((e) => e.id !== id));
     onPlanes(planes.filter((p) => p.evaluationId !== id));
+  };
+
+  const openEvaluationReport = (e) => {
+    const person = colaboradores.find((c) => c.id === e.colaboradorId);
+    const plan = planes.find((p) => p.evaluationId === e.id);
+    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan));
   };
 
   return (
@@ -655,6 +864,9 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                     <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
+                    <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                      <FileText size={12} /> PDF
+                    </button>
                     <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
                       <Trash2 size={12} /> Eliminar
                     </button>
