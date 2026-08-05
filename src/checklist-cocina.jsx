@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import TalentoHumanoView from "./TalentoHumanoModule";
 import {
   ClipboardCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
@@ -14,29 +14,32 @@ import {
 import * as XLSX from "xlsx";
 
 /* =========================================================================
-   NOTA PARA FUTURA EXTENSIÃ“N (software institucional / mejora continua)
+   NOTA PARA FUTURA EXTENSIÓN (software institucional / mejora continua)
    -------------------------------------------------------------------------
-   Este archivo sigue un patrÃ³n repetible que puede usarse como base para
-   otros mÃ³dulos de evaluaciÃ³n y mejora continua:
+   Este archivo sigue un patrón repetible que puede usarse como base para
+   otros módulos de evaluación y mejora continua:
 
-   1. Un "modelo de datos" plano y con nombres genÃ©ricos (config, areas,
+   1. Un "modelo de datos" plano y con nombres genéricos (config, areas,
       personas, usuarios, inspecciones, hallazgos) guardado con
       window.storage (ver helpers loadKey/saveKey).
-   2. Un objeto `persist` en el componente raÃ­z que centraliza cÃ³mo se
-      actualiza cada colecciÃ³n (estado + guardado).
-   3. Una vista por funciÃ³n del negocio (InspecciÃ³n, Historial, AnÃ¡lisis,
-      Hallazgos) + un panel Admin con sub-pestaÃ±as CRUD (Ãreas, EPP,
+   2. Un objeto `persist` en el componente raíz que centraliza cómo se
+      actualiza cada colección (estado + guardado).
+   3. Una vista por función del negocio (Inspección, Historial, Análisis,
+      Hallazgos) + un panel Admin con sub-pestañas CRUD (Áreas, EPP,
       Personal, Usuarios).
-   Para agregar un nuevo mÃ³dulo de evaluaciÃ³n (ej. auditorÃ­as de seguridad,
-   evaluaciÃ³n de proveedores, ciclos PHVA/Kaizen) se puede replicar el mismo
-   patrÃ³n: nueva colecciÃ³n + nueva vista + nueva pestaÃ±a en BottomNav/Admin.
+   Para agregar un nuevo módulo de evaluación (ej. auditorías de seguridad,
+   evaluación de proveedores, ciclos PHVA/Kaizen) se puede replicar el mismo
+   patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.4.0";
-const APP_VERSION_DATE = "2026-08-03";
+const APP_VERSION = "1.7.0";
+const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
-  { version: "1.4.0", fecha: APP_VERSION_DATE, cambios: "Impresion de inspecciones y listas de chequeo, evaluacion diferenciada para servicio al cliente, historial superior de evaluaciones y conservacion reforzada de fotografias de colaboradores." },
+  { version: "1.7.0", fecha: APP_VERSION_DATE, cambios: "Inicio en cuadricula de modulos, cabecera interna compacta por modulo y navegacion superior para Calidad." },
+  { version: "1.6.0", fecha: "2026-08-05", cambios: "Firmas tactiles extendidas a documentos generados, evidencias desde camara/galeria y opcion de compartir por WhatsApp/Web Share." },
+  { version: "1.5.0", fecha: "2026-08-05", cambios: "Modulo de gestion de desviaciones y acciones correctivas con evidencia fotografica, firmas tactiles, documento imprimible y verificacion de eficacia." },
+  { version: "1.4.0", fecha: "2026-08-03", cambios: "Impresion de inspecciones y listas de chequeo, evaluacion diferenciada para servicio al cliente, historial superior de evaluaciones y conservacion reforzada de fotografias de colaboradores." },
   { version: "1.3.0", fecha: "2026-08-03", cambios: "Lista EPP independiente en Calidad, llamados de atencion descargables/enviables, reportes individuales y acumulados de talento humano con observaciones, graficas y registro fotografico." },
   { version: "1.2.0", fecha: "2026-07-31", cambios: "Shell ERP global, base unica de personal, modulo de talento humano separado, inspecciones por responsable de area, mejoras tablet/PWA y configuracion visual." },
   { version: "1.1.0", fecha: "2026-07-20", cambios: "Cuentas de usuario con contraseña y rol (administrador/usuario), hasta 3 áreas por persona del personal, mejoras en carga de logo, sección Acerca de con control de versión." },
@@ -53,6 +56,24 @@ const STATUS = [
 ];
 const statusInfo = (v) => STATUS.find((s) => s.value === v) || STATUS[3];
 
+const DEVIATION_TYPES = [
+  "Calidad del producto",
+  "Cantidad insuficiente",
+  "Error de empaque",
+  "Temperatura",
+  "Presentacion",
+  "Inocuidad",
+  "Incumplimiento de procedimiento",
+  "Atencion al cliente",
+  "Infraestructura",
+  "Equipos",
+  "Otro",
+];
+const DEVIATION_SERVICES = ["Desayuno", "Almuerzo", "Cena", "Refrigerio", "Evento", "Otro"];
+const DEVIATION_SEVERITIES = ["Baja", "Media", "Alta", "Critica"];
+const DEVIATION_STATES = ["Abierta", "En proceso", "Cerrada"];
+const DEVIATION_EFFECTIVENESS = ["Pendiente", "Si", "Parcialmente", "No"];
+
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -62,24 +83,24 @@ function todayISO() {
 function fmtFecha(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) +
-    " Â· " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    " · " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
 function resizeImageToDataUrl(file, maxDim = 320) {
   return new Promise((resolve, reject) => {
     if (!file.type || !file.type.startsWith("image/")) {
-      reject(new Error("Selecciona un archivo de imagen vÃ¡lido (PNG, JPG, etc.)."));
+      reject(new Error("Selecciona un archivo de imagen válido (PNG, JPG, etc.)."));
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      reject(new Error("La imagen es muy pesada (mÃ¡ximo 8MB)."));
+      reject(new Error("La imagen es muy pesada (máximo 8MB)."));
       return;
     }
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error("El archivo no parece ser una imagen vÃ¡lida."));
+      img.onerror = () => reject(new Error("El archivo no parece ser una imagen válida."));
       img.onload = () => {
         let { width, height } = img;
         if (width > maxDim || height > maxDim) {
@@ -102,71 +123,71 @@ function resizeImageToDataUrl(file, maxDim = 320) {
 }
 
 const DEFAULT_AREAS_RAW = [
-  { nombre: "RecepciÃ³n de mercancÃ­a", items: [
+  { nombre: "Recepción de mercancía", items: [
     "Temperatura correcta de productos refrigerados/congelados",
-    "RevisiÃ³n de fechas de caducidad y empaques",
-    "VehÃ­culo de transporte en condiciones higiÃ©nicas",
-    "DocumentaciÃ³n y trazabilidad de proveedor completa",
+    "Revisión de fechas de caducidad y empaques",
+    "Vehículo de transporte en condiciones higiénicas",
+    "Documentación y trazabilidad de proveedor completa",
   ]},
-  { nombre: "AlmacÃ©n seco", items: [
+  { nombre: "Almacén seco", items: [
     "Productos rotulados y con sistema PEPS",
-    "Ausencia de plagas o signos de infestaciÃ³n",
+    "Ausencia de plagas o signos de infestación",
     "Productos separados del piso y la pared",
-    "Orden y limpieza general del Ã¡rea",
+    "Orden y limpieza general del área",
   ]},
-  { nombre: "CÃ¡maras frÃ­as y refrigeraciÃ³n", items: [
-    "Temperatura de refrigeraciÃ³n dentro de rango (0-4Â°C)",
-    "Temperatura de congelaciÃ³n dentro de rango (-18Â°C o menor)",
+  { nombre: "Cámaras frías y refrigeración", items: [
+    "Temperatura de refrigeración dentro de rango (0-4°C)",
+    "Temperatura de congelación dentro de rango (-18°C o menor)",
     "Alimentos crudos separados de cocidos/listos para consumo",
     "Empaques cerrados y rotulados con fecha",
   ]},
   { nombre: "Cocina caliente", items: [
-    "Temperatura de cocciÃ³n verificada y registrada",
+    "Temperatura de cocción verificada y registrada",
     "Superficies de trabajo limpias y desinfectadas",
-    "Utensilios y tablas de colores segÃºn tipo de alimento",
-    "Manejo correcto de aceites y equipos de cocciÃ³n",
+    "Utensilios y tablas de colores según tipo de alimento",
+    "Manejo correcto de aceites y equipos de cocción",
   ]},
-  { nombre: "Cocina frÃ­a", items: [
-    "Cadena de frÃ­o respetada en preparaciÃ³n",
+  { nombre: "Cocina fría", items: [
+    "Cadena de frío respetada en preparación",
     "Utensilios exclusivos para alimentos listos para consumo",
     "Superficies y equipos limpios y desinfectados",
-    "Ausencia de contaminaciÃ³n cruzada",
+    "Ausencia de contaminación cruzada",
   ]},
-  { nombre: "PanaderÃ­a y reposterÃ­a", items: [
+  { nombre: "Panadería y repostería", items: [
     "Insumos almacenados correctamente y rotulados",
     "Limpieza de hornos y equipos de mezclado",
     "Control de tiempos y temperaturas de horneado",
-    "Orden y limpieza del Ã¡rea de trabajo",
+    "Orden y limpieza del área de trabajo",
   ]},
   { nombre: "Zona de lavado (loza y ollas)", items: [
-    "ConcentraciÃ³n correcta de detergente/desinfectante",
-    "SeparaciÃ³n de Ã¡reas sucia y limpia",
+    "Concentración correcta de detergente/desinfectante",
+    "Separación de áreas sucia y limpia",
     "Loza y utensilios secos y almacenados correctamente",
-    "Drenajes limpios y sin obstrucciÃ³n",
+    "Drenajes limpios y sin obstrucción",
   ]},
-  { nombre: "LÃ­nea de servicio", items: [
-    "Temperatura de alimentos en exhibiciÃ³n dentro de rango",
+  { nombre: "Línea de servicio", items: [
+    "Temperatura de alimentos en exhibición dentro de rango",
     "Protectores/estornudaderos en buen estado",
-    "Utensilios de servicio limpios y exclusivos por preparaciÃ³n",
-    "RotulaciÃ³n de alÃ©rgenos visible",
+    "Utensilios de servicio limpios y exclusivos por preparación",
+    "Rotulación de alérgenos visible",
   ]},
   { nombre: "Comedor", items: [
     "Mesas y sillas limpias",
     "Pisos libres de residuos y derrames",
     "Botes de basura tapados y no saturados",
-    "SeÃ±alizaciÃ³n de aforo y accesos despejada",
+    "Señalización de aforo y accesos despejada",
   ]},
-  { nombre: "BaÃ±os y vestidores del personal", items: [
-    "Disponibilidad de jabÃ³n y toallas/secador",
+  { nombre: "Baños y vestidores del personal", items: [
+    "Disponibilidad de jabón y toallas/secador",
     "Limpieza general y sin malos olores",
     "Casilleros ordenados y en buen estado",
     "Insumos de higiene personal disponibles",
   ]},
   { nombre: "Manejo de residuos", items: [
-    "SeparaciÃ³n de residuos orgÃ¡nicos/inorgÃ¡nicos",
+    "Separación de residuos orgánicos/inorgánicos",
     "Contenedores tapados y en buen estado",
-    "Frecuencia de recolecciÃ³n adecuada",
-    "Ãrea de residuos limpia y sin fugas",
+    "Frecuencia de recolección adecuada",
+    "Área de residuos limpia y sin fugas",
   ]},
 ];
 
@@ -175,10 +196,10 @@ const DEFAULT_EPP_RAW = [
   "Cubrebocas",
   "Uniforme limpio y en buen estado",
   "Calzado cerrado antiderrapante",
-  "Guantes segÃºn la tarea",
+  "Guantes según la tarea",
   "Delantal",
-  "Manos y uÃ±as limpias, sin esmalte",
-  "Sin joyerÃ­a (anillos, pulseras, reloj, aretes)",
+  "Manos y uñas limpias, sin esmalte",
+  "Sin joyería (anillos, pulseras, reloj, aretes)",
   "Barba cubierta (si aplica)",
 ];
 
@@ -216,7 +237,7 @@ async function saveKey(key, value) {
   }
 }
 
-/* ---------------------------------- componentes pequeÃ±os ---------------------------------- */
+/* ---------------------------------- componentes pequeños ---------------------------------- */
 
 function StatusPicker({ value, onChange, compact }) {
   return (
@@ -332,6 +353,7 @@ export default function App() {
   const [usuarios, setUsuarios] = useState([]);
   const [inspecciones, setInspecciones] = useState([]);
   const [hallazgos, setHallazgos] = useState([]);
+  const [desviaciones, setDesviaciones] = useState([]);
   const [hrColaboradores, setHrColaboradores] = useState([]);
   const [hrEvaluaciones, setHrEvaluaciones] = useState([]);
   const [hrPlanes, setHrPlanes] = useState([]);
@@ -345,7 +367,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [c, a, e, p, u, i, h, hc, he, hp, ht, hcert, session] = await Promise.all([
+      const [c, a, e, p, u, i, h, d, hc, he, hp, ht, hcert, session] = await Promise.all([
         loadKey("qc_config", null),
         loadKey("qc_areas", null),
         loadKey("qc_epp", null),
@@ -353,6 +375,7 @@ export default function App() {
         loadKey("qc_usuarios", []),
         loadKey("qc_inspecciones", []),
         loadKey("qc_hallazgos", []),
+        loadKey("qc_desviaciones", []),
         loadKey("hr_colaboradores", []),
         loadKey("hr_evaluaciones", []),
         loadKey("hr_planes_mejora", []),
@@ -370,7 +393,7 @@ export default function App() {
         finalEpp = DEFAULT_EPP_RAW.map((t) => ({ id: genId(), texto: t }));
         saveKey("qc_epp", finalEpp);
       }
-      // migraciÃ³n: personas antiguas con "area" (texto) -> "areas" (arreglo)
+      // migración: personas antiguas con "area" (texto) -> "areas" (arreglo)
       const finalPersonas = (p || []).map((per) => per.areas ? per : { ...per, areas: per.area ? [per.area] : [] });
       const migratedColaboradores = (hc?.length ? hc : finalPersonas.map((per) => ({
         ...per,
@@ -387,6 +410,7 @@ export default function App() {
       setUsuarios(u || []);
       setInspecciones(i || []);
       setHallazgos(h || []);
+      setDesviaciones(d || []);
       setHrColaboradores(migratedColaboradores || []);
       setHrEvaluaciones(he || []);
       setHrPlanes(hp || []);
@@ -405,6 +429,7 @@ export default function App() {
     usuarios: async (v) => { setUsuarios(v); await saveKey("qc_usuarios", v); },
     inspecciones: async (v) => { setInspecciones(v); await saveKey("qc_inspecciones", v); },
     hallazgos: async (v) => { setHallazgos(v); await saveKey("qc_hallazgos", v); },
+    desviaciones: async (v) => { setDesviaciones(v); await saveKey("qc_desviaciones", v); },
     hrColaboradores: async (v) => { setHrColaboradores(v); setPersonas(v); await saveKey("hr_colaboradores", v); await saveKey("qc_personas", v); },
     hrEvaluaciones: async (v) => { setHrEvaluaciones(v); await saveKey("hr_evaluaciones", v); },
     hrPlanes: async (v) => { setHrPlanes(v); await saveKey("hr_planes_mejora", v); },
@@ -428,20 +453,21 @@ export default function App() {
       usuarios,
       inspecciones,
       hallazgos,
+      desviaciones,
       hrColaboradores,
       hrEvaluaciones,
       hrPlanes,
       hrCapacitaciones,
       hrCertificaciones,
     });
-  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones]);
+  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F1F3F4]">
         <div className="text-center">
           <ClipboardCheck className="mx-auto mb-2 animate-pulse" size={36} color="#1F2B3A" />
-          <p className="text-sm text-gray-500">Cargandoâ€¦</p>
+          <p className="text-sm text-gray-500">Cargando...</p>
         </div>
       </div>
     );
@@ -502,7 +528,7 @@ export default function App() {
         onHome={() => setActiveModule("menu")}
         onLogout={() => { setCurrentUser(null); saveKey("erp_session_user", null); setActiveModule("menu"); }} />
 
-      <main className={`flex-1 overflow-y-auto ${isAdmin && activeModule === "calidad" ? "pb-20" : "pb-6"} w-full max-w-6xl mx-auto px-3 pt-3 relative z-10`}>
+      <main className="flex-1 overflow-y-auto pb-6 w-full max-w-6xl mx-auto px-3 pt-3 relative z-10">
         {activeModule === "menu" && (
           <ErpModuleLauncher
             isAdmin={isAdmin}
@@ -513,6 +539,9 @@ export default function App() {
               setTab(moduleId === "calidad" ? "inspeccion" : "dashboard");
             }}
           />
+        )}
+        {activeModule === "calidad" && (
+          <QualityTabs tab={tab} setTab={setTab} primary={primary} isAdmin={isAdmin} />
         )}
         {activeModule === "calidad" && tab === "inspeccion" && (
           <AreaInspectionView
@@ -550,6 +579,17 @@ export default function App() {
         {activeModule === "calidad" && isAdmin && tab === "hallazgos" && (
           <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} />
         )}
+        {activeModule === "calidad" && isAdmin && tab === "desviaciones" && (
+          <DesviacionesView
+            desviaciones={desviaciones}
+            areas={areas}
+            colaboradores={activeColaboradores}
+            currentUser={currentUser}
+            primary={primary}
+            config={config}
+            onUpdate={(v) => persist.desviaciones(v)}
+          />
+        )}
         {activeModule === "talento" && isAdmin && (
           <TalentoHumanoView
             colaboradores={hrColaboradores}
@@ -578,29 +618,27 @@ export default function App() {
             onConfig={persist.config} onAreas={persist.areas} onEpp={persist.epp}
             onPersonas={persist.hrColaboradores} onUsuarios={persist.usuarios}
             primary={primary}
-            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones }}
+            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones }}
           />
         )}
       </main>
 
-      {activeModule === "calidad" && isAdmin && <BottomNav tab={tab} setTab={setTab} primary={primary} />}
     </div>
   );
 }
 
 function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome, onLogout }) {
-  const moduleLabel = activeModule === "calidad" ? "Calidad" : activeModule === "talento" ? "Talento Humano" : activeModule === "admin" ? "Administracion" : "Inicio";
+  const moduleLabel = activeModule === "calidad" ? "Calidad e inspecciones" : activeModule === "talento" ? "Gestión del Talento Humano" : activeModule === "admin" ? "Administración global" : "Inicio";
+  const inModule = activeModule !== "menu";
   return (
-    <header className="flex items-center justify-between px-4 py-2.5 text-white sticky top-0 z-30" style={{ background: primary }}>
+    <header className="flex items-center justify-between px-4 py-2 text-white sticky top-0 z-30" style={{ background: primary }}>
       <div className="flex items-center gap-2 min-w-0">
-        {config.logo ? (
+        {!inModule && (config.logo ? (
           <img src={config.logo} className="h-7 w-7 object-contain rounded bg-white/10 p-0.5 flex-shrink-0" alt="logo" />
-        ) : (
-          <ClipboardCheck size={22} />
-        )}
+        ) : <ClipboardCheck size={22} />)}
         <div className="min-w-0">
-          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
-          <p className="text-[11px] text-white/70 truncate">{moduleLabel} Â· {currentUser.nombre} {isAdmin && "Â· Admin"}</p>
+          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{inModule ? moduleLabel : config.nombre}</p>
+          <p className="text-[11px] text-white/70 truncate">{inModule ? `${currentUser.nombre}${isAdmin ? " · Admin" : ""}` : `${moduleLabel} · ${currentUser.nombre}${isAdmin ? " · Admin" : ""}`}</p>
         </div>
       </div>
       <div className="flex items-center gap-1">
@@ -613,17 +651,17 @@ function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome
 
 function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
   const modules = [
-    { id: "calidad", title: "Calidad e inspecciones", description: "Inspeccion de areas, historial, analisis, hallazgos y llamados de atencion.", icon: ClipboardCheck, enabled: true },
-    { id: "talento", title: "Gestion del Talento Humano", description: "Personal unico, evaluaciones, planes de mejora, certificaciones y capacitaciones.", icon: BriefcaseBusiness, enabled: isAdmin },
-    { id: "admin", title: "Administracion global", description: "Usuarios, temas, colores, fuentes, logo, marca de agua, backup y ajustes generales del ERP.", icon: Settings, enabled: isAdmin },
+    { id: "calidad", title: "Calidad e inspecciones", description: "Inspecciones, EPP, hallazgos y desviaciones.", icon: ClipboardCheck, enabled: true, color: accent },
+    { id: "talento", title: "Talento humano", description: "Colaboradores, evaluaciones y planes.", icon: BriefcaseBusiness, enabled: isAdmin, color: primary },
+    { id: "admin", title: "Administración", description: "Usuarios, temas, logo y backups.", icon: Settings, enabled: isAdmin, color: "#5C6673" },
   ];
   return (
-    <div className="py-4 space-y-4">
-      <div className="bg-white rounded-xl p-4">
-        <h1 className="text-xl font-black text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Selecciona un modulo</h1>
-        <p className="text-sm text-gray-500 mt-1">El ERP queda organizado por modulos para poder crecer sin convertir cada pantalla en un bloque enorme.</p>
+    <div className="py-3 space-y-3">
+      <div className="bg-white rounded-xl p-3">
+        <h1 className="text-lg font-black text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Módulos del ERP</h1>
+        <p className="text-sm text-gray-500 mt-1">Selecciona el área de trabajo.</p>
       </div>
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {modules.map((module) => {
           const Icon = module.icon;
           return (
@@ -631,13 +669,13 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
               key={module.id}
               disabled={!module.enabled}
               onClick={() => onSelect(module.id)}
-              className="bg-white rounded-xl p-4 text-left border border-transparent hover:border-gray-200 disabled:opacity-45"
+              className="bg-white rounded-xl p-3 min-h-40 border border-transparent hover:border-gray-200 disabled:opacity-45 flex flex-col items-center justify-center text-center gap-2"
             >
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: module.id === "calidad" ? `${accent}22` : `${primary}18` }}>
-                <Icon size={22} color={module.id === "calidad" ? accent : primary} />
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: `${module.color}18` }}>
+                <Icon size={34} color={module.color} />
               </div>
-              <h2 className="font-black text-gray-800 text-base" style={{ fontFamily: "Oswald, sans-serif" }}>{module.title}</h2>
-              <p className="text-sm text-gray-500 mt-1">{module.description}</p>
+              <h2 className="font-black text-gray-800 text-base leading-tight" style={{ fontFamily: "Oswald, sans-serif" }}>{module.title}</h2>
+              <p className="text-xs text-gray-500 leading-snug">{module.description}</p>
             </button>
           );
         })}
@@ -652,6 +690,8 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   const [responsableId, setResponsableId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
+  const [firmaInspector, setFirmaInspector] = useState("");
+  const [firmaResponsable, setFirmaResponsable] = useState("");
   const [saved, setSaved] = useState(false);
 
   const area = areas.find((a) => a.id === areaId);
@@ -670,6 +710,8 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     setResponsableId("");
     setObservaciones("");
     setEvidencias([]);
+    setFirmaInspector("");
+    setFirmaResponsable("");
     setSaved(false);
   };
 
@@ -727,6 +769,15 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
       primary,
     }));
   };
+  const shareBlankChecklist = async () => {
+    if (!area) return;
+    await shareDocument({
+      filename: `lista-chequeo-${area.nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
+      html: checklistPrintHtml({ title: `Lista de chequeo - ${area.nombre}`, subtitle: "Formato para inspección de área.", items: area.items, primary }),
+      title: `Lista de chequeo - ${area.nombre}`,
+      text: `Lista de chequeo para ${area.nombre}`,
+    });
+  };
 
   if (saved) {
     return (
@@ -757,6 +808,9 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             <button onClick={printBlankChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
               <FileText size={15} /> Imprimir lista
             </button>
+            <button onClick={shareBlankChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+              <Download size={15} /> WhatsApp
+            </button>
           </div>
         </div>
       </div>
@@ -766,7 +820,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Users size={12} /> Responsable del area</label>
           <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
             <option value="">Seleccionar responsable</option>
-            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} Â· {p.cargo || p.rol || "Personal"}</option>)}
+            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {p.cargo || p.rol || "Personal"}</option>)}
           </select>
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs text-gray-400">{answeredCount}/{totalItems} items evaluados</p>
@@ -798,11 +852,13 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
             style={{ borderColor: "#E2E8F0" }}
             placeholder="Describe hallazgos, condiciones del area o acciones inmediatas..." />
-          <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer" style={{ borderColor: primary, color: primary }}>
-            <ImagePlus size={16} /> Camara / archivo
-            <input type="file" accept="image/*" capture="environment" multiple onChange={handleEvidence} className="hidden" />
-          </label>
+          <EvidenceActions onChange={handleEvidence} primary={primary} />
           {evidencias.length > 0 && <p className="text-xs text-gray-400">{evidencias.length} evidencia(s) adjunta(s)</p>}
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <SignaturePad label="Firma inspector" value={firmaInspector} onChange={setFirmaInspector} />
+          <SignaturePad label="Firma responsable del area" value={firmaResponsable} onChange={setFirmaResponsable} />
         </div>
 
         <button disabled={!allAnswered} onClick={handleSave}
@@ -820,6 +876,8 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   const [itemStates, setItemStates] = useState({});
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
+  const [firmaInspector, setFirmaInspector] = useState("");
+  const [firmaResponsable, setFirmaResponsable] = useState("");
   const [saved, setSaved] = useState(false);
 
   const persona = personas.find((p) => p.id === personaId);
@@ -832,6 +890,8 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     setItemStates({});
     setObservaciones("");
     setEvidencias([]);
+    setFirmaInspector("");
+    setFirmaResponsable("");
     setSaved(false);
   };
 
@@ -863,6 +923,8 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       epp: [{ personaId: persona.id, personaNombre: persona.nombre, rol: persona.cargo || persona.rol || "", foto: persona.foto || null, items: itemsRes }],
       observaciones,
       evidencias,
+      firmaInspector,
+      firmaResponsable,
       cumplimientoPct: pct,
     };
     const nuevosHallazgos = itemsRes.filter((i) => i.estado === "no_cumple").map((i) => ({
@@ -887,6 +949,19 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       items: eppItems,
       primary,
     }));
+  };
+  const shareEppChecklist = async () => {
+    await shareDocument({
+      filename: `lista-epp-${(persona?.nombre || "colaborador").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
+      html: checklistPrintHtml({
+        title: "Lista de verificación EPP",
+        subtitle: persona ? `Formato para ${persona.nombre}` : "Formato para verificación del colaborador.",
+        items: eppItems,
+        primary,
+      }),
+      title: "Lista de verificación EPP",
+      text: persona ? `Lista EPP para ${persona.nombre}` : "Lista de verificación EPP",
+    });
   };
 
   if (saved) {
@@ -919,6 +994,9 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
             <button onClick={printEppChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
               <FileText size={15} /> Imprimir lista EPP
             </button>
+            <button onClick={shareEppChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+              <Download size={15} /> WhatsApp
+            </button>
           </div>
         </div>
       </div>
@@ -950,10 +1028,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
           className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
           style={{ borderColor: "#E2E8F0" }}
           placeholder="Describe incumplimientos, reposicion requerida o novedades del EPP..." />
-        <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer" style={{ borderColor: primary, color: primary }}>
-          <ImagePlus size={16} /> Camara / archivo
-          <input type="file" accept="image/*" capture="environment" multiple onChange={handleEvidence} className="hidden" />
-        </label>
+        <EvidenceActions onChange={handleEvidence} primary={primary} />
         {evidencias.length > 0 && (
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
@@ -961,11 +1036,360 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
         )}
       </div>
 
+      <div className="grid sm:grid-cols-2 gap-3">
+        <SignaturePad label="Firma inspector" value={firmaInspector} onChange={setFirmaInspector} />
+        <SignaturePad label="Firma colaborador / responsable" value={firmaResponsable} onChange={setFirmaResponsable} />
+      </div>
+
       <button disabled={!allAnswered} onClick={handleSave}
         className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
         style={{ background: primary }}>
         <Save size={18} /> Guardar verificacion EPP
       </button>
+    </div>
+  );
+}
+
+function nextDeviationCode(desviaciones) {
+  const max = desviaciones.reduce((acc, d) => {
+    const n = Number((d.codigo || "").replace(/\D/g, ""));
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  return `DES-${String(max + 1).padStart(6, "0")}`;
+}
+
+function SignaturePad({ value, onChange, label }) {
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+
+  const getPoint = (event) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const touch = event.touches?.[0] || event.changedTouches?.[0];
+    const clientX = touch ? touch.clientX : event.clientX;
+    const clientY = touch ? touch.clientY : event.clientY;
+    return {
+      x: ((clientX - rect.left) / rect.width) * canvas.width,
+      y: ((clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+
+  const start = (event) => {
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const p = getPoint(event);
+    drawing.current = true;
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  };
+  const move = (event) => {
+    if (!drawing.current) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const p = getPoint(event);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  };
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+  const clear = () => {
+    const canvas = canvasRef.current;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!value) return;
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    img.src = value;
+  }, [value]);
+
+  return (
+    <div className="border rounded-xl p-2 bg-gray-50">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
+        <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={520}
+        height={170}
+        className="w-full h-36 bg-white rounded-lg border touch-none"
+        onMouseDown={start}
+        onMouseMove={move}
+        onMouseUp={end}
+        onMouseLeave={end}
+        onTouchStart={start}
+        onTouchMove={move}
+        onTouchEnd={end}
+      />
+    </div>
+  );
+}
+
+function EvidenceActions({ onChange, primary, multiple = true }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer bg-white" style={{ borderColor: primary, color: primary }}>
+        <ImagePlus size={16} /> Tomar foto
+        <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
+      </label>
+      <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer bg-white" style={{ borderColor: "#CBD5E1", color: "#475569" }}>
+        <Download size={16} /> Galeria / archivo
+        <input type="file" accept="image/*" multiple={multiple} onChange={onChange} className="hidden" />
+      </label>
+    </div>
+  );
+}
+
+function DesviacionesView({ desviaciones, areas, colaboradores, currentUser, primary, config, onUpdate }) {
+  const blank = {
+    area: areas[0]?.nombre || "",
+    servicio: DEVIATION_SERVICES[0],
+    comedor: "",
+    reportadoPor: currentUser.nombre,
+    cargo: "",
+    tipo: DEVIATION_TYPES[0],
+    descripcion: "",
+    causaInmediata: "",
+    responsableId: "",
+    responsableNombre: "",
+    responsabilidad: "",
+    gravedad: "Media",
+    accionInmediata: "",
+    accionCorrectiva: "",
+    responsableCierreId: "",
+    responsableCierreNombre: "",
+    fechaCompromiso: "",
+    fechaCierreReal: "",
+    estado: "Abierta",
+    anotacionCierre: "",
+    eficacia: "Pendiente",
+    evidencias: [],
+    firmaSupervisor: "",
+    firmaResponsable: "",
+    firmaCliente: "",
+  };
+  const [form, setForm] = useState(blank);
+  const [detalle, setDetalle] = useState(null);
+  const codigoPreview = nextDeviationCode(desviaciones);
+
+  const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+  const selectResponsible = (id, fieldId, fieldName) => {
+    const person = colaboradores.find((c) => c.id === id);
+    setForm((prev) => ({ ...prev, [fieldId]: id, [fieldName]: person?.nombre || "" }));
+  };
+  const handleEvidence = async (event) => {
+    const files = Array.from(event.target.files || []);
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 900)));
+    setForm((prev) => ({ ...prev, evidencias: [...prev.evidencias, ...converted] }));
+    event.target.value = "";
+  };
+  const save = () => {
+    if (!form.descripcion.trim()) return;
+    const record = {
+      id: genId(),
+      codigo: codigoPreview,
+      fecha: todayISO(),
+      creadoPor: currentUser.nombre,
+      ...form,
+      estado: form.eficacia === "No" ? "Abierta" : form.estado,
+    };
+    onUpdate([record, ...desviaciones]);
+    setForm(blank);
+  };
+  const updateDeviation = (id, patch) => {
+    const updated = desviaciones.map((d) => {
+      if (d.id !== id) return d;
+      const next = { ...d, ...patch };
+      if (patch.eficacia === "No") next.estado = "Abierta";
+      return next;
+    });
+    onUpdate(updated);
+    if (detalle?.id === id) setDetalle(updated.find((d) => d.id === id));
+  };
+  const printDeviation = (d) => openPrintDocument(d.codigo, deviationPrintHtml(d, primary, config));
+  const shareDeviation = async (d) => {
+    await shareDocument({
+      filename: `${(d.codigo || "desviacion").toLowerCase()}-${new Date(d.fecha).toISOString().slice(0, 10)}.html`,
+      html: deviationPrintHtml(d, primary, config),
+      title: `Desviación ${d.codigo}`,
+      text: `${d.codigo} · ${d.tipo} · ${d.area}`,
+    });
+  };
+
+  const abiertas = desviaciones.filter((d) => d.estado !== "Cerrada").length;
+  const criticas = desviaciones.filter((d) => d.gravedad === "Critica" || d.gravedad === "Alta").length;
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3 grid grid-cols-3 gap-2">
+        <div className="bg-gray-50 rounded-lg p-2 text-center">
+          <p className="text-xl font-black" style={{ color: primary }}>{desviaciones.length}</p>
+          <p className="text-[10px] text-gray-400 uppercase font-bold">Desviaciones</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-2 text-center">
+          <p className="text-xl font-black" style={{ color: "#B4750E" }}>{abiertas}</p>
+          <p className="text-[10px] text-gray-400 uppercase font-bold">Abiertas</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-2 text-center">
+          <p className="text-xl font-black" style={{ color: "#B5333D" }}>{criticas}</p>
+          <p className="text-[10px] text-gray-400 uppercase font-bold">Altas/criticas</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-3 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Gestion de desviaciones</h2>
+            <p className="text-xs text-gray-400">Consecutivo automatico: {codigoPreview}</p>
+          </div>
+          <Badge color="#B4750E" bg="#FCF1DC">{form.estado}</Badge>
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-2">
+          <select value={form.area} onChange={(e) => updateField("area", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+          </select>
+          <select value={form.servicio} onChange={(e) => updateField("servicio", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            {DEVIATION_SERVICES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <input value={form.comedor} onChange={(e) => updateField("comedor", e.target.value)} placeholder="Comedor" className="border rounded-md px-3 py-2 text-sm" />
+          <input value={form.reportadoPor} onChange={(e) => updateField("reportadoPor", e.target.value)} placeholder="Quien la presenta" className="border rounded-md px-3 py-2 text-sm" />
+          <input value={form.cargo} onChange={(e) => updateField("cargo", e.target.value)} placeholder="Cargo" className="border rounded-md px-3 py-2 text-sm" />
+          <select value={form.tipo} onChange={(e) => updateField("tipo", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            {DEVIATION_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </select>
+          <select value={form.gravedad} onChange={(e) => updateField("gravedad", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            {DEVIATION_SEVERITIES.map((g) => <option key={g}>{g}</option>)}
+          </select>
+          <select value={form.responsableId} onChange={(e) => selectResponsible(e.target.value, "responsableId", "responsableNombre")} className="border rounded-md px-3 py-2 text-sm">
+            <option value="">Responsable del hallazgo</option>
+            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <input value={form.responsabilidad} onChange={(e) => updateField("responsabilidad", e.target.value)} placeholder="Responsabilidad" className="border rounded-md px-3 py-2 text-sm" />
+        </div>
+
+        <textarea value={form.descripcion} onChange={(e) => updateField("descripcion", e.target.value)} placeholder="Descripcion de la desviacion" className="w-full border rounded-md px-3 py-2 text-sm" />
+        <textarea value={form.causaInmediata} onChange={(e) => updateField("causaInmediata", e.target.value)} placeholder="Causa inmediata" className="w-full border rounded-md px-3 py-2 text-sm" />
+
+        <div className="grid sm:grid-cols-2 gap-2">
+          <textarea value={form.accionInmediata} onChange={(e) => updateField("accionInmediata", e.target.value)} placeholder="Accion inmediata: cambio, reposicion, reproceso, descarte..." className="w-full border rounded-md px-3 py-2 text-sm" />
+          <textarea value={form.accionCorrectiva} onChange={(e) => updateField("accionCorrectiva", e.target.value)} placeholder="Accion correctiva / plan de cierre" className="w-full border rounded-md px-3 py-2 text-sm" />
+          <select value={form.responsableCierreId} onChange={(e) => selectResponsible(e.target.value, "responsableCierreId", "responsableCierreNombre")} className="border rounded-md px-3 py-2 text-sm">
+            <option value="">Responsable del cierre</option>
+            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <input type="date" value={form.fechaCompromiso} onChange={(e) => updateField("fechaCompromiso", e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
+          <input type="date" value={form.fechaCierreReal} onChange={(e) => updateField("fechaCierreReal", e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
+          <select value={form.estado} onChange={(e) => updateField("estado", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+            {DEVIATION_STATES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <textarea value={form.anotacionCierre} onChange={(e) => updateField("anotacionCierre", e.target.value)} placeholder="Anotacion y cierre" className="w-full border rounded-md px-3 py-2 text-sm" />
+        <select value={form.eficacia} onChange={(e) => updateField("eficacia", e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm">
+          {DEVIATION_EFFECTIVENESS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+
+        <div className="bg-gray-50 rounded-xl p-3">
+          <EvidenceActions onChange={handleEvidence} primary={primary} />
+          {form.evidencias.length > 0 && (
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-3">
+              {form.evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+            </div>
+          )}
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <SignaturePad label="Firma supervisor" value={form.firmaSupervisor} onChange={(v) => updateField("firmaSupervisor", v)} />
+          <SignaturePad label="Firma responsable" value={form.firmaResponsable} onChange={(v) => updateField("firmaResponsable", v)} />
+        </div>
+        <SignaturePad label="Firma cliente o representante del area (opcional)" value={form.firmaCliente} onChange={(v) => updateField("firmaCliente", v)} />
+
+        <button onClick={save} className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2" style={{ background: primary }}>
+          <Save size={18} /> Guardar desviacion
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {desviaciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin desviaciones registradas.</p>}
+        {desviaciones.map((d) => (
+          <div key={d.id} className="bg-white rounded-xl p-3 border border-gray-100">
+            <button onClick={() => setDetalle(d)} className="w-full text-left">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">{d.codigo} · {d.tipo}</p>
+                  <p className="text-xs text-gray-400">{fmtFecha(d.fecha)} · {d.area} · {d.servicio}</p>
+                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{d.descripcion}</p>
+                </div>
+                <Badge color={d.estado === "Cerrada" ? "#1E7A46" : d.gravedad === "Critica" ? "#B5333D" : "#B4750E"} bg={d.estado === "Cerrada" ? "#E4F4EA" : "#FCF1DC"}>{d.estado}</Badge>
+              </div>
+            </button>
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => printDeviation(d)} className="flex-1 py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+                <FileText size={13} /> Documento
+              </button>
+              <button onClick={() => shareDeviation(d)} className="flex-1 py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+                <Download size={13} /> WhatsApp
+              </button>
+              <button onClick={() => updateDeviation(d.id, { estado: d.estado === "Cerrada" ? "En proceso" : "Cerrada", fechaCierreReal: d.estado === "Cerrada" ? "" : new Date().toISOString().slice(0, 10) })} className="flex-1 py-2 rounded-md text-xs font-bold text-white" style={{ background: primary }}>
+                {d.estado === "Cerrada" ? "Reabrir" : "Cerrar"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {detalle && (
+        <Modal title={detalle.codigo} onClose={() => setDetalle(null)} wide>
+          <div className="space-y-3">
+            <div className="grid sm:grid-cols-2 gap-2 text-sm text-gray-600">
+              <p><b>Tipo:</b> {detalle.tipo}</p>
+              <p><b>Gravedad:</b> {detalle.gravedad}</p>
+              <p><b>Area:</b> {detalle.area}</p>
+              <p><b>Responsable:</b> {detalle.responsableNombre || "Sin asignar"}</p>
+              <p><b>Estado:</b> {detalle.estado}</p>
+              <p><b>Eficacia:</b> {detalle.eficacia || "Pendiente"}</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs font-bold text-gray-500 uppercase">Descripcion</p>
+              <p className="text-sm text-gray-700">{detalle.descripcion}</p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <select value={detalle.estado} onChange={(e) => updateDeviation(detalle.id, { estado: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
+                {DEVIATION_STATES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+              <select value={detalle.eficacia || "Pendiente"} onChange={(e) => updateDeviation(detalle.id, { eficacia: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
+                {DEVIATION_EFFECTIVENESS.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </div>
+            {detalle.evidencias?.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {detalle.evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+              </div>
+            )}
+            <button onClick={() => printDeviation(detalle)} className="w-full py-2.5 rounded-md text-white font-bold flex items-center justify-center gap-2" style={{ background: primary }}>
+              <FileText size={15} /> Imprimir / guardar PDF
+            </button>
+            <button onClick={() => shareDeviation(detalle)} className="w-full py-2.5 rounded-md border font-bold flex items-center justify-center gap-2" style={{ borderColor: primary, color: primary }}>
+              <Download size={15} /> Compartir por WhatsApp
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -981,8 +1405,8 @@ function SetupWizard({ onDone }) {
 
   const submit = () => {
     if (!adminNombre.trim()) return setError("Escribe el nombre del administrador.");
-    if (pw.length < 4) return setError("La contraseÃ±a debe tener al menos 4 caracteres.");
-    if (pw !== pw2) return setError("Las contraseÃ±as no coinciden.");
+    if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
+    if (pw !== pw2) return setError("Las contraseñas no coinciden.");
     onDone(
       { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif" },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
@@ -995,7 +1419,7 @@ function SetupWizard({ onDone }) {
       <div className="bg-white rounded-xl w-full max-w-sm p-6">
         <div className="flex items-center gap-2 mb-1">
           <ClipboardCheck color="#F2622E" size={26} />
-          <h1 className="text-lg font-black" style={{ fontFamily: "Oswald, sans-serif" }}>ConfiguraciÃ³n inicial</h1>
+          <h1 className="text-lg font-black" style={{ fontFamily: "Oswald, sans-serif" }}>Configuración inicial</h1>
         </div>
         <p className="text-sm text-gray-500 mb-4">Define el nombre de tu checklist y crea la cuenta de administrador.</p>
 
@@ -1005,10 +1429,10 @@ function SetupWizard({ onDone }) {
         <label className="text-xs font-bold text-gray-500 uppercase">Nombre del administrador</label>
         <input value={adminNombre} onChange={(e) => setAdminNombre(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-3 mt-1" placeholder="Ej. Jefe de cocina" />
 
-        <label className="text-xs font-bold text-gray-500 uppercase">Crear contraseÃ±a (mÃ­n. 4 caracteres)</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Crear contraseña (mín. 4 caracteres)</label>
         <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-3 mt-1" />
 
-        <label className="text-xs font-bold text-gray-500 uppercase">Confirmar contraseÃ±a</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Confirmar contraseña</label>
         <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} className="w-full border rounded-md px-3 py-2 mb-1 mt-1" />
 
         {error && (
@@ -1019,7 +1443,7 @@ function SetupWizard({ onDone }) {
           Crear checklist
         </button>
 
-        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} Â· v{APP_VERSION}</p>
+        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} · v{APP_VERSION}</p>
       </div>
     </div>
   );
@@ -1067,7 +1491,7 @@ function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
           ))}
         </div>
 
-        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} Â· v{APP_VERSION}</p>
+        <p className="text-center text-[11px] text-gray-400 mt-4">Creado por {CREADO_POR} · v{APP_VERSION}</p>
       </div>
       {children}
     </div>
@@ -1087,7 +1511,7 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
         )}
         <div className="min-w-0">
           <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
-          <p className="text-[11px] text-white/60 truncate">{currentUser.nombre} {isAdmin && "Â· Admin"}</p>
+          <p className="text-[11px] text-white/60 truncate">{currentUser.nombre} {isAdmin && "· Admin"}</p>
         </div>
       </div>
       <button onClick={onLogout} className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"><LogOut size={18} /></button>
@@ -1095,31 +1519,37 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
   );
 }
 
-function BottomNav({ tab, setTab, primary }) {
+function QualityTabs({ tab, setTab, primary, isAdmin }) {
   const items = [
-    { id: "inspeccion", label: "InspecciÃ³n", icon: ListChecks },
+    { id: "inspeccion", label: "Inspección", icon: ListChecks },
     { id: "epp", label: "EPP", icon: ShieldCheck },
     { id: "historial", label: "Historial", icon: ClipboardCheck },
-    { id: "analisis", label: "AnÃ¡lisis", icon: BarChart3 },
+    { id: "analisis", label: "Análisis", icon: BarChart3 },
     { id: "hallazgos", label: "Hallazgos", icon: AlertCircle },
-  ];
+    { id: "desviaciones", label: "Desv.", icon: AlertTriangle },
+  ].filter((it) => isAdmin || ["inspeccion", "epp"].includes(it.id));
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-30">
+    <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto mb-3">
       {items.map((it) => {
         const active = tab === it.id;
         const Icon = it.icon;
         return (
-          <button key={it.id} onClick={() => setTab(it.id)} className="flex-1 flex flex-col items-center py-2 gap-0.5">
-            <Icon size={19} color={active ? primary : "#9AA2AC"} />
-            <span className="text-[10px] font-semibold" style={{ color: active ? primary : "#9AA2AC" }}>{it.label}</span>
+          <button
+            key={it.id}
+            onClick={() => setTab(it.id)}
+            className="px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1.5"
+            style={{ background: active ? primary : "#F1F3F4", color: active ? "#fff" : "#5C6673" }}
+          >
+            <Icon size={14} />
+            {it.label}
           </button>
         );
       })}
-    </nav>
+    </div>
   );
 }
 
-/* ---------------------------------- inspecciÃ³n ---------------------------------- */
+/* ---------------------------------- inspección ---------------------------------- */
 
 function InspeccionView({ areas, eppItems, personas, currentUser, accent, primary, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
@@ -1158,7 +1588,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       const p = personas.find((x) => x.id === pid);
       return {
         personaId: pid,
-        personaNombre: p?.nombre || "â€”",
+        personaNombre: p?.nombre || "-",
         rol: p?.rol || "",
         items: eppItems.map((ei) => ({ itemId: ei.id, texto: ei.texto, estado: eppStates[`${pid}:${ei.id}`] || "no_aplica" })),
       };
@@ -1192,7 +1622,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       pe.items.filter((i) => i.estado === "no_cumple").forEach((i) => {
         nuevosHallazgos.push({
           id: genId(), inspeccionId: insp.id, fecha: insp.fecha, area: area.nombre,
-          descripcion: `EPP Â· ${pe.personaNombre}: ${i.texto}`, responsable: pe.personaNombre,
+          descripcion: `EPP · ${pe.personaNombre}: ${i.texto}`, responsable: pe.personaNombre,
           estado: "abierto", fechaCompromiso: "", notas: "",
         });
       });
@@ -1206,10 +1636,10 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
     return (
       <div className="bg-white rounded-xl p-6 text-center mt-6">
         <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
-        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>InspecciÃ³n guardada</h3>
-        <p className="text-sm text-gray-500 mt-1">El registro quedÃ³ guardado correctamente.</p>
+        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Inspección guardada</h3>
+        <p className="text-sm text-gray-500 mt-1">El registro quedó guardado correctamente.</p>
         <button onClick={() => resetForm(areas[0]?.id || "")} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
-          Nueva inspecciÃ³n
+          Nueva inspección
         </button>
       </div>
     );
@@ -1218,12 +1648,12 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3">
-        <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Building2 size={12} /> Ãrea a inspeccionar</label>
+        <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Building2 size={12} /> Área a inspeccionar</label>
         <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
           {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} Ã­tems evaluados</p>
+          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} ítems evaluados</p>
           <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
           </div>
@@ -1233,7 +1663,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       {area && (
         <div className="bg-white rounded-xl p-3">
           <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-            <ListChecks size={16} /> Puntos de verificaciÃ³n
+            <ListChecks size={16} /> Puntos de verificación
           </h3>
           <div className="space-y-3">
             {area.items.map((it) => (
@@ -1248,13 +1678,13 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
       <div className="bg-white rounded-xl p-3">
         <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-          <ShieldCheck size={16} /> EvaluaciÃ³n de EPP del personal
+          <ShieldCheck size={16} /> Evaluación de EPP del personal
         </h3>
         {personas.length === 0 ? (
-          <p className="text-xs text-gray-400">No hay personal registrado. Un administrador puede agregarlo en la secciÃ³n Admin.</p>
+          <p className="text-xs text-gray-400">No hay personal registrado. Un administrador puede agregarlo en la sección Admin.</p>
         ) : (
           <>
-            <p className="text-xs text-gray-400 mb-2">Selecciona al personal presente para evaluar su equipo de protecciÃ³n.</p>
+            <p className="text-xs text-gray-400 mb-2">Selecciona al personal presente para evaluar su equipo de protección.</p>
             <div className="flex flex-wrap gap-1.5">
               {[...sugeridas, ...otras].map((p) => {
                 const on = selectedPersonaIds.includes(p.id);
@@ -1272,7 +1702,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
               const p = personas.find((x) => x.id === pid);
               return (
                 <div key={pid} className="mt-3 border border-gray-100 rounded-lg p-2.5">
-                  <p className="text-sm font-bold mb-1.5">{p?.nombre} <span className="text-xs font-normal text-gray-400">Â· {p?.rol}</span></p>
+                  <p className="text-sm font-bold mb-1.5">{p?.nombre} <span className="text-xs font-normal text-gray-400">· {p?.rol}</span></p>
                   <div className="space-y-2.5">
                     {eppItems.map((ei) => (
                       <div key={ei.id}>
@@ -1295,13 +1725,13 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       <div className="bg-white rounded-xl p-3">
         <label className="text-xs font-bold text-gray-500 uppercase">Observaciones generales</label>
         <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={3}
-          className="w-full border rounded-md px-3 py-2 mt-1 text-sm" placeholder="Notas adicionales sobre esta inspecciÃ³nâ€¦" />
+          className="w-full border rounded-md px-3 py-2 mt-1 text-sm" placeholder="Notas adicionales sobre esta inspección..." />
       </div>
 
       <button disabled={!allAnswered} onClick={handleSave}
         className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
         style={{ background: primary }}>
-        <Save size={18} /> Guardar inspecciÃ³n
+        <Save size={18} /> Guardar inspección
       </button>
     </div>
   );
@@ -1334,7 +1764,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumen), "Inspecciones");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalleItems), "Detalle items");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalleEpp), "EPP");
-    // bookType xlsx: formato estÃ¡ndar compatible con Excel y con Google Sheets (Archivo > Importar, o abrir desde Drive)
+    // bookType xlsx: formato estándar compatible con Excel y con Google Sheets (Archivo > Importar, o abrir desde Drive)
     XLSX.writeFile(wb, "registro_calidad_cocina.xlsx", { bookType: "xlsx" });
   };
 
@@ -1352,7 +1782,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   };
 
   const eliminar = () => {
-    if (confirm("Â¿Eliminar esta inspecciÃ³n de forma permanente? TambiÃ©n se eliminarÃ¡n sus hallazgos asociados.")) {
+    if (confirm("¿Eliminar esta inspección de forma permanente? También se eliminarán sus hallazgos asociados.")) {
       onUpdate(inspecciones.filter((i) => i.id !== detalle.id));
       onDeleteCascadeHallazgos(detalle.id);
       setDetalle(null);
@@ -1362,12 +1792,23 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   const imprimirDetalle = () => {
     openPrintDocument(`Inspeccion - ${detalle.areaNombre}`, inspectionPrintHtml(detalle, primary));
   };
+  const compartirDetalle = async () => {
+    await shareDocument({
+      filename: `inspeccion-${(detalle.areaNombre || "area").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${new Date(detalle.fecha).toISOString().slice(0, 10)}.html`,
+      html: inspectionPrintHtml(detalle, primary),
+      title: `Inspección - ${detalle.areaNombre}`,
+      text: `Inspección ${detalle.areaNombre}: ${detalle.cumplimientoPct}% de cumplimiento.`,
+    });
+  };
+  const guardarFirmasDetalle = () => {
+    onUpdate(inspecciones.map((i) => i.id === detalle.id ? detalle : i));
+  };
 
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center">
         <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="border rounded-md px-3 py-2 text-sm flex-1">
-          <option value="todas">Todas las Ã¡reas</option>
+          <option value="todas">Todas las áreas</option>
           {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
         </select>
         <button onClick={exportar} className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-bold border" style={{ borderColor: primary, color: primary }}>
@@ -1375,7 +1816,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
         </button>
       </div>
 
-      {filtradas.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin registros todavÃ­a.</p>}
+      {filtradas.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin registros todavía.</p>}
 
       <div className="space-y-2">
         {filtradas.map((i) => {
@@ -1384,7 +1825,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
             <button key={i.id} onClick={() => setDetalle(i)} className="w-full bg-white rounded-lg p-3 flex items-center justify-between text-left">
               <div className="min-w-0">
                 <p className="font-semibold text-sm truncate">{i.areaNombre}</p>
-                <p className="text-xs text-gray-400">{fmtFecha(i.fecha)} Â· {i.inspector}</p>
+                <p className="text-xs text-gray-400">{fmtFecha(i.fecha)} · {i.inspector}</p>
               </div>
               <Badge color={st.color} bg={st.bg}>{i.cumplimientoPct}%</Badge>
             </button>
@@ -1394,7 +1835,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
       {detalle && (
         <Modal title={detalle.areaNombre} onClose={() => { setDetalle(null); setEditando(false); }} wide>
-          <p className="text-xs text-gray-400 mb-3">{fmtFecha(detalle.fecha)} Â· Inspector: {detalle.inspector}</p>
+          <p className="text-xs text-gray-400 mb-3">{fmtFecha(detalle.fecha)} · Inspector: {detalle.inspector}</p>
           {detalle.responsableFoto && (
             <div className="mb-3 flex items-center justify-center gap-3 bg-gray-50 rounded-lg p-2">
               <img src={detalle.responsableFoto} alt="" className="w-14 h-14 rounded-md object-cover border" />
@@ -1454,11 +1895,22 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
             </div>
           )}
 
+          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+            <SignaturePad label="Firma inspector" value={detalle.firmaInspector || ""} onChange={(v) => setDetalle({ ...detalle, firmaInspector: v })} />
+            <SignaturePad label="Firma responsable" value={detalle.firmaResponsable || ""} onChange={(v) => setDetalle({ ...detalle, firmaResponsable: v })} />
+          </div>
+
           <div className="flex gap-2 mt-4">
             {!editando ? (
               <>
+                <button onClick={guardarFirmasDetalle} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+                  <Save size={14} /> Firmas
+                </button>
                 <button onClick={imprimirDetalle} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
                   <FileText size={14} /> Imprimir
+                </button>
+                <button onClick={compartirDetalle} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+                  <Download size={14} /> WhatsApp
                 </button>
                 <button onClick={startEdit} className="flex-1 py-2 rounded-md font-bold text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
                   <Pencil size={14} /> Editar
@@ -1479,7 +1931,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   );
 }
 
-/* ---------------------------------- anÃ¡lisis ---------------------------------- */
+/* ---------------------------------- análisis ---------------------------------- */
 
 function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
   const promedioGeneral = useMemo(() => {
@@ -1530,7 +1982,7 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
 
       {porArea.length > 0 && (
         <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Cumplimiento promedio por Ã¡rea</h3>
+          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Cumplimiento promedio por área</h3>
           <ResponsiveContainer width="100%" height={Math.max(180, porArea.length * 34)}>
             <BarChart data={porArea} layout="vertical" margin={{ left: 10, right: 20 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} />
@@ -1558,7 +2010,7 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
         </div>
       )}
 
-      {inspecciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Realiza inspecciones para ver el anÃ¡lisis acumulado.</p>}
+      {inspecciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Realiza inspecciones para ver el análisis acumulado.</p>}
     </div>
   );
 }
@@ -1603,6 +2055,17 @@ function downloadTextFile(filename, content, type = "text/html;charset=utf-8") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function shareDocument({ filename, html, title, text }) {
+  const file = new File([html], filename, { type: "text/html" });
+  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+    await navigator.share({ title, text, files: [file] });
+    return;
+  }
+  downloadTextFile(filename, html);
+  const message = `${text || title || "Documento generado desde el ERP"}\n\nEl archivo se descargó en la tablet. Adjuntalo desde WhatsApp si el navegador no permite enviarlo automaticamente.`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
 }
 
 function statusRowsHtml(items = []) {
@@ -1652,6 +2115,9 @@ function inspectionPrintHtml(inspeccion, primary) {
     </div>
     <table><thead><tr><th>Item EPP</th><th>Estado</th></tr></thead><tbody>${statusRowsHtml(pe.items)}</tbody></table>
   `).join("");
+  const signature = (src, label) => src
+    ? `<div class="signed"><img src="${src}" /><p>${label}</p></div>`
+    : `<div class="line">${label}</div>`;
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" /><title>Inspeccion ${escapeHtml(inspeccion.areaNombre)}</title>
 <style>
@@ -1661,7 +2127,7 @@ h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}h2{font-size:15px;marg
 .score{font-size:34px;font-weight:800;color:${(inspeccion.cumplimientoPct || 0) >= 75 ? "#1E7A46" : "#B5333D"}}
 table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}
 .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}.person{display:flex;gap:10px;align-items:center;margin:12px 0 6px}.person img,.avatar{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin-right:10px;vertical-align:middle}
-.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}
+.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}.signed{border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center}.signed img{width:100%;height:80px;object-fit:contain}.signed p{border-top:1px solid #111827;margin:8px 0 0;padding-top:6px}
 </style></head><body>
 <div class="header"><h1>${inspeccion.tipo === "epp" ? "Verificacion EPP" : "Inspeccion de area"}</h1><p>Registro generado desde el ERP.</p></div>
 <div class="meta">
@@ -1675,7 +2141,63 @@ ${(inspeccion.items || []).length ? `<h2>Puntos de verificacion</h2><table><thea
 ${eppBlocks ? `<h2>Lista de EPP</h2>${eppBlocks}` : ""}
 <h2>Observaciones</h2><div class="box">${escapeHtml(inspeccion.observaciones || "Sin observaciones.")}</div>
 <h2>Registro fotografico</h2>${evidenceHtml(inspeccion.evidencias)}
-<div class="sign"><div class="line">Inspector</div><div class="line">Responsable</div></div>
+<div class="sign">${signature(inspeccion.firmaInspector, "Inspector")}${signature(inspeccion.firmaResponsable, "Responsable")}</div>
+</body></html>`;
+}
+
+function deviationPrintHtml(d, primary, config) {
+  const photos = d.evidencias?.length
+    ? `<div class="photos">${d.evidencias.map((src) => `<img src="${src}" />`).join("")}</div>`
+    : '<div class="box">Sin evidencia fotografica.</div>';
+  const signature = (src, label) => src
+    ? `<div class="signature"><img src="${src}" /><p>${label}</p></div>`
+    : `<div class="signature empty"><p>${label}</p></div>`;
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8" /><title>${escapeHtml(d.codigo)}</title>
+<style>
+body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}
+.header{display:flex;align-items:center;gap:14px;border-bottom:3px solid ${primary};padding-bottom:12px}.logo{width:70px;height:70px;object-fit:contain}
+.meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}.meta{display:grid;grid-template-columns:170px 1fr;gap:6px 14px}.label{font-weight:700;color:#4b5563}
+.badge{display:inline-block;padding:4px 8px;border-radius:6px;background:#f3f4f6;font-weight:700}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}
+.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px}.signature{border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;min-height:120px}.signature img{max-width:100%;height:80px;object-fit:contain}.signature p{border-top:1px solid #111827;margin:8px 0 0;padding-top:6px;font-size:12px}.empty{display:flex;align-items:end;justify-content:center}
+table{width:100%;border-collapse:collapse}td{border:1px solid #ddd;padding:7px;font-size:12px}
+@media print{body{margin:16mm}.photos img{height:130px}}
+</style></head><body>
+<div class="header">
+  ${config?.logo ? `<img class="logo" src="${config.logo}" />` : ""}
+  <div><h1>Gestion de desviaciones y acciones correctivas</h1><p>${escapeHtml(d.codigo)} · Documento generado desde el ERP.</p></div>
+</div>
+<div class="meta">
+<div class="label">Fecha y hora</div><div>${escapeHtml(fmtFecha(d.fecha))}</div>
+<div class="label">Tipo de desviacion</div><div>${escapeHtml(d.tipo)}</div>
+<div class="label">Gravedad</div><div><span class="badge">${escapeHtml(d.gravedad)}</span></div>
+<div class="label">Area</div><div>${escapeHtml(d.area)}</div>
+<div class="label">Servicio / comedor</div><div>${escapeHtml(d.servicio)} · ${escapeHtml(d.comedor || "Sin comedor")}</div>
+<div class="label">Presentada por</div><div>${escapeHtml(d.reportadoPor)} · ${escapeHtml(d.cargo || "Sin cargo")}</div>
+<div class="label">Responsable</div><div>${escapeHtml(d.responsableNombre || "Sin responsable")} · ${escapeHtml(d.responsabilidad || "")}</div>
+<div class="label">Estado</div><div>${escapeHtml(d.estado)}</div>
+</div>
+<h2>Descripcion de la desviacion</h2><div class="box">${escapeHtml(d.descripcion)}</div>
+<h2>Causa inmediata</h2><div class="box">${escapeHtml(d.causaInmediata || "Sin registrar.")}</div>
+<h2>Accion inmediata</h2><div class="box">${escapeHtml(d.accionInmediata || "Sin registrar.")}</div>
+<h2>Plan de cierre</h2>
+<table><tbody>
+<tr><td><b>Accion correctiva</b></td><td>${escapeHtml(d.accionCorrectiva || "Sin registrar.")}</td></tr>
+<tr><td><b>Responsable cierre</b></td><td>${escapeHtml(d.responsableCierreNombre || "Sin asignar")}</td></tr>
+<tr><td><b>Fecha compromiso</b></td><td>${escapeHtml(d.fechaCompromiso || "Pendiente")}</td></tr>
+<tr><td><b>Fecha real cierre</b></td><td>${escapeHtml(d.fechaCierreReal || "Pendiente")}</td></tr>
+<tr><td><b>Anotacion y cierre</b></td><td>${escapeHtml(d.anotacionCierre || "Sin registrar.")}</td></tr>
+<tr><td><b>Verificacion de eficacia</b></td><td>${escapeHtml(d.eficacia || "Pendiente")}</td></tr>
+</tbody></table>
+<h2>Evidencia fotografica</h2>${photos}
+<h2>Firmas</h2>
+<div class="signatures">
+${signature(d.firmaSupervisor, "Supervisor")}
+${signature(d.firmaResponsable, "Responsable del hallazgo")}
+${signature(d.firmaCliente, "Cliente / representante")}
+</div>
 </body></html>`;
 }
 
@@ -1683,6 +2205,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   const [filtro, setFiltro] = useState("todos");
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [firmaTarget, setFirmaTarget] = useState(null);
 
   const filtrados = hallazgos.filter((h) => filtro === "todos" || h.estado === filtro);
   const recurrencias = useMemo(() => {
@@ -1698,6 +2221,10 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
 
   const startEdit = (h) => { setEditId(h.id); setDraft({ ...h }); };
   const guardar = () => { onUpdate(hallazgos.map((h) => h.id === draft.id ? draft : h)); setEditId(null); };
+  const guardarFirmas = () => {
+    onUpdate(hallazgos.map((h) => h.id === firmaTarget.id ? firmaTarget : h));
+    setFirmaTarget(null);
+  };
   const marcarLlamado = (h, total) => {
     const registro = {
       id: genId(),
@@ -1716,6 +2243,9 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   const buildLlamado = (h, total, registro) => {
     const responsable = h.responsable || "Sin responsable asignado";
     const fecha = new Date(registro.fecha).toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "2-digit" });
+    const signature = (src, label) => src
+      ? `<div class="firma signed"><img src="${src}" /><p>${label}</p></div>`
+      : `<div class="firma">${label}</div>`;
     return `<!doctype html>
 <html lang="es">
 <head>
@@ -1731,7 +2261,10 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
     .label { font-weight: 700; color: #4b5563; }
     .warn { color: #991b1b; font-weight: 700; }
     .firmas { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 56px; }
-    .firma { border-top: 1px solid #111827; padding-top: 8px; text-align: center; }
+    .firma { border-top: 1px solid #111827; padding-top: 8px; text-align: center; min-height: 90px; }
+    .signed { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; border-top: 1px solid #d1d5db; }
+    .signed img { width: 100%; height: 70px; object-fit: contain; }
+    .signed p { border-top: 1px solid #111827; margin: 6px 0 0; padding-top: 5px; }
     @media print { body { margin: 18mm; } }
   </style>
 </head>
@@ -1754,8 +2287,8 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   <h2>Acción requerida</h2>
   <p>Se solicita corregir la condición reportada, evitar su repetición y cumplir los compromisos definidos por la empresa.</p>
   <div class="firmas">
-    <div class="firma">Responsable</div>
-    <div class="firma">Administrador / Inspector</div>
+    ${signature(h.firmaResponsable, "Responsable")}
+    ${signature(h.firmaSupervisor, "Administrador / Inspector")}
   </div>
 </body>
 </html>`;
@@ -1767,25 +2300,17 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
     downloadTextFile(`llamado-atencion-${responsable || "registro"}-${new Date().toISOString().slice(0, 10)}.html`, buildLlamado(h, total, registro));
   };
 
-  const enviarLlamado = (h, total) => {
+  const enviarLlamado = async (h, total) => {
     const registro = marcarLlamado(h, total);
     const responsable = h.responsable || "Sin responsable asignado";
-    const subject = `Llamado de atención - ${responsable}`;
-    const body = [
-      "Llamado de atención generado desde el ERP.",
-      "",
-      `Fecha: ${new Date(registro.fecha).toLocaleDateString("es-CO")}`,
-      `Responsable: ${responsable}`,
-      `Área: ${h.area || "Sin área"}`,
-      `Incumplimiento: ${h.descripcion || "Sin descripción"}`,
-      `Repeticiones detectadas: ${total}`,
-      `Compromiso: ${h.fechaCompromiso || "Pendiente por definir"}`,
-      "",
-      `Notas: ${h.notas || "Sin notas registradas."}`,
-    ].join("\n");
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const slug = responsable.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    await shareDocument({
+      filename: `llamado-atencion-${slug || "registro"}-${new Date().toISOString().slice(0, 10)}.html`,
+      html: buildLlamado(h, total, registro),
+      title: `Llamado de atención - ${responsable}`,
+      text: `Llamado de atención ${h.area || ""}: ${h.descripcion || ""}`,
+    });
   };
-
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 border" style={{ borderColor: recurrentes ? "#F2C94C" : "#E5E7EB" }}>
@@ -1825,7 +2350,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{h.descripcion}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{h.area} Â· {fmtFecha(h.fecha)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{h.area} · {fmtFecha(h.fecha)}</p>
                 </div>
                 <Badge color={st.color} bg={st.bg}>{st.label}</Badge>
               </div>
@@ -1852,6 +2377,9 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
                     <button onClick={() => startEdit(h)} className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
                       <Pencil size={12} /> Editar
                     </button>
+                    <button onClick={() => setFirmaTarget({ ...h })} className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                      <FileText size={12} /> Firmas
+                    </button>
                     <button
                       disabled={!puedeLlamado}
                       onClick={() => descargarLlamado(h, totalRecurrencias)}
@@ -1875,18 +2403,29 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
           );
         })}
       </div>
+      {firmaTarget && (
+        <Modal title={`Firmas · ${firmaTarget.responsable || "hallazgo"}`} onClose={() => setFirmaTarget(null)} wide>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <SignaturePad label="Firma responsable" value={firmaTarget.firmaResponsable || ""} onChange={(v) => setFirmaTarget({ ...firmaTarget, firmaResponsable: v })} />
+            <SignaturePad label="Firma supervisor / inspector" value={firmaTarget.firmaSupervisor || ""} onChange={(v) => setFirmaTarget({ ...firmaTarget, firmaSupervisor: v })} />
+          </div>
+          <button onClick={guardarFirmas} className="w-full mt-3 py-2.5 rounded-md text-white font-bold" style={{ background: primary }}>
+            Guardar firmas
+          </button>
+        </Modal>
+      )}
     </div>
   );
 }
 
-/* ---------------------------------- administraciÃ³n ---------------------------------- */
+/* ---------------------------------- administración ---------------------------------- */
 
 function AdminView({ config, areas, eppItems, usuarios, currentUser, onConfig, onAreas, onEpp, onUsuarios, primary, backupData }) {
   const [sub, setSub] = useState("general");
 
   const subs = [
     { id: "general", label: "General" },
-    { id: "areas", label: "Ãreas" },
+    { id: "areas", label: "Áreas" },
     { id: "epp", label: "EPP" },
     { id: "usuarios", label: "Usuarios" },
     { id: "acerca", label: "Acerca de" },
@@ -1983,7 +2522,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
 
       <div className="grid sm:grid-cols-3 gap-3">
         <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">TamaÃ±o de letra</label>
+          <label className="text-xs font-bold text-gray-500 uppercase">Tamaño de letra</label>
           <input type="range" min="100" max="150" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
           <p className="text-[11px] text-gray-400">{fontScale}%</p>
         </div>
@@ -2028,7 +2567,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
           <div className="flex flex-col gap-1.5">
             <label className="px-3 py-1.5 rounded-md text-xs font-bold border cursor-pointer inline-flex items-center gap-1.5 w-fit"
               style={{ borderColor: primary, color: primary }}>
-              <ImagePlus size={13} /> {logoBusy ? "Cargandoâ€¦" : "Subir imagen"}
+              <ImagePlus size={13} /> {logoBusy ? "Cargando..." : "Subir imagen"}
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogo} className="hidden" disabled={logoBusy} />
             </label>
             {logo && (
@@ -2036,7 +2575,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
             )}
           </div>
         </div>
-        <p className="text-[11px] text-gray-400 mt-1.5">Formatos: PNG, JPG, WEBP o SVG. Se ajusta automÃ¡ticamente y se guarda al instante.</p>
+        <p className="text-[11px] text-gray-400 mt-1.5">Formatos: PNG, JPG, WEBP o SVG. Se ajusta automáticamente y se guarda al instante.</p>
         {logoError && <p className="text-xs text-red-600 mt-1 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{logoError}</p>}
       </div>
 
@@ -2060,7 +2599,7 @@ const [editandoItem, setEditandoItem] = useState(null);
     setNuevaArea("");
   };
   const eliminarArea = (id) => {
-    if (confirm("Â¿Eliminar esta Ã¡rea y todos sus Ã­tems?")) onAreas(areas.filter((a) => a.id !== id));
+    if (confirm("¿Eliminar esta área y todos sus ítems?")) onAreas(areas.filter((a) => a.id !== id));
   };
   const agregarItem = (areaId) => {
     const texto = (nuevoItem[areaId] || "").trim();
@@ -2094,7 +2633,7 @@ const [editandoItem, setEditandoItem] = useState(null);
   return (
     <div className="space-y-2">
       <div className="bg-white rounded-xl p-3 flex gap-2">
-        <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva Ã¡reaâ€¦" className="flex-1 border rounded-md px-3 py-2 text-sm" />
+        <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva área..." className="flex-1 border rounded-md px-3 py-2 text-sm" />
         <button onClick={agregarArea} className="px-3 rounded-md font-bold text-white flex items-center gap-1" style={{ background: primary }}><Plus size={16} /></button>
       </div>
 
@@ -2102,7 +2641,7 @@ const [editandoItem, setEditandoItem] = useState(null);
         <div key={a.id} className="bg-white rounded-xl p-3">
           <div className="flex items-center gap-2">
             <input value={a.nombre} onChange={(e) => renombrarArea(a.id, e.target.value)} className="flex-1 font-bold text-sm border-b border-transparent focus:border-gray-300 outline-none py-1" />
-            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="text-xs font-bold" style={{ color: primary }}>{expand === a.id ? "Ocultar" : `${a.items.length} Ã­tems`}</button>
+            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="text-xs font-bold" style={{ color: primary }}>{expand === a.id ? "Ocultar" : `${a.items.length} ítems`}</button>
             <button onClick={() => eliminarArea(a.id)} className="text-red-500"><Trash2 size={16} /></button>
           </div>
           {expand === a.id && (
@@ -2152,7 +2691,7 @@ const [editandoItem, setEditandoItem] = useState(null);
 ))}
               <div className="flex gap-2">
                 <input value={nuevoItem[a.id] || ""} onChange={(e) => setNuevoItem((s) => ({ ...s, [a.id]: e.target.value }))}
-                  placeholder="Nuevo Ã­temâ€¦" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
+                  placeholder="Nuevo ítem..." className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
                 <button onClick={() => agregarItem(a.id)} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
               </div>
             </div>
@@ -2182,7 +2721,7 @@ function AdminEpp({ eppItems, onEpp, primary }) {
         </div>
       ))}
       <div className="flex gap-2 pt-1">
-        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo Ã­tem de EPPâ€¦" className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
+        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo ítem de EPP..." className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
         <button onClick={agregar} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
       </div>
     </div>
@@ -2209,7 +2748,7 @@ function AreaCheckboxes({ areas, value, onChange, max = MAX_AREAS_POR_PERSONA })
           );
         })}
       </div>
-      <p className="text-[11px] text-gray-400 mt-1">{value.length}/{max} Ã¡reas seleccionadas</p>
+      <p className="text-[11px] text-gray-400 mt-1">{value.length}/{max} áreas seleccionadas</p>
     </div>
   );
 }
@@ -2224,7 +2763,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
     setForm({ nombre: "", rol: "", areas: [] });
   };
   const eliminar = (id) => {
-    if (confirm("Â¿Eliminar a esta persona?")) onPersonas(personas.filter((p) => p.id !== id));
+    if (confirm("¿Eliminar a esta persona?")) onPersonas(personas.filter((p) => p.id !== id));
   };
   const guardarEdicion = (p) => {
     onPersonas(personas.map((x) => x.id === p.id ? p : x));
@@ -2238,7 +2777,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="w-full border rounded-md px-3 py-2 text-sm" />
         <input value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} placeholder="Rol / puesto" className="w-full border rounded-md px-3 py-2 text-sm" />
         <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Ãreas asignadas (mÃ¡x. 3)</label>
+          <label className="text-xs font-bold text-gray-500 uppercase">Áreas asignadas (máx. 3)</label>
           <div className="mt-1"><AreaCheckboxes areas={areas} value={form.areas} onChange={(v) => setForm({ ...form, areas: v })} /></div>
         </div>
         <button onClick={agregar} className="w-full py-2 rounded-md font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><Plus size={15} /> Agregar</button>
@@ -2252,7 +2791,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold text-sm">{p.nombre}</p>
-                <p className="text-xs text-gray-400">{p.rol}{p.areas?.length ? ` Â· ${p.areas.join(", ")}` : ""}</p>
+                <p className="text-xs text-gray-400">{p.rol}{p.areas?.length ? ` · ${p.areas.join(", ")}` : ""}</p>
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 <button onClick={() => setEditId(p.id)} className="text-gray-500"><Pencil size={16} /></button>
@@ -2273,7 +2812,7 @@ function PersonaEditForm({ persona, areas, onSave, onCancel, primary }) {
       <input value={p.nombre} onChange={(e) => setP({ ...p, nombre: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
       <input value={p.rol} onChange={(e) => setP({ ...p, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
       <div>
-        <label className="text-xs font-bold text-gray-500 uppercase">Ãreas asignadas (mÃ¡x. 3)</label>
+        <label className="text-xs font-bold text-gray-500 uppercase">Áreas asignadas (máx. 3)</label>
         <div className="mt-1"><AreaCheckboxes areas={areas} value={p.areas} onChange={(v) => setP({ ...p, areas: v })} /></div>
       </div>
       <div className="flex gap-2">
@@ -2292,9 +2831,9 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
   const admins = usuarios.filter((u) => u.rol === "administrador");
 
   const agregar = () => {
-    if (usuarios.length >= MAX_USUARIOS) return setMsg(`Ya alcanzaste el mÃ¡ximo de ${MAX_USUARIOS} usuarios.`);
+    if (usuarios.length >= MAX_USUARIOS) return setMsg(`Ya alcanzaste el máximo de ${MAX_USUARIOS} usuarios.`);
     if (!form.nombre.trim()) return setMsg("Escribe el nombre del usuario.");
-    if (form.password.length < 4) return setMsg("La contraseÃ±a debe tener al menos 4 caracteres.");
+    if (form.password.length < 4) return setMsg("La contraseña debe tener al menos 4 caracteres.");
     onUsuarios([...usuarios, { id: genId(), nombre: form.nombre.trim(), password: form.password, rol: form.rol }]);
     setForm({ nombre: "", password: "", rol: "usuario" });
     setMsg("");
@@ -2305,7 +2844,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
       setMsg("Debe existir al menos un administrador. Crea otro antes de eliminar este.");
       return;
     }
-    if (confirm(`Â¿Eliminar el acceso de ${u.nombre}?`)) onUsuarios(usuarios.filter((x) => x.id !== u.id));
+    if (confirm(`¿Eliminar el acceso de ${u.nombre}?`)) onUsuarios(usuarios.filter((x) => x.id !== u.id));
   };
 
   const guardarEdicion = (u) => {
@@ -2325,7 +2864,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
           <UserPlus size={15} /> Agregar usuario ({usuarios.length}/{MAX_USUARIOS})
         </h3>
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="ContraseÃ±a (mÃ­n. 4 caracteres)" className="w-full border rounded-md px-3 py-2 text-sm" />
+        <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Contraseña (mín. 4 caracteres)" className="w-full border rounded-md px-3 py-2 text-sm" />
         <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
           <option value="usuario">Usuario (solo hace inspecciones)</option>
           <option value="administrador">Administrador (acceso total)</option>
@@ -2345,7 +2884,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-semibold text-sm flex items-center gap-1.5">
-                  {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tÃº)</span>}
+                  {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tú)</span>}
                 </p>
                 <Badge color={u.rol === "administrador" ? "#1F2B3A" : "#5C6673"} bg={u.rol === "administrador" ? "#E9ECEF" : "#F1F3F4"}>
                   {u.rol === "administrador" ? "Administrador" : "Usuario"}
@@ -2360,7 +2899,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
         </div>
       ))}
 
-      <p className="text-[11px] text-gray-400 px-1">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaÃ±a InspecciÃ³n y no ven Historial, AnÃ¡lisis, Hallazgos ni Admin.</p>
+      <p className="text-[11px] text-gray-400 px-1">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaña Inspección y no ven Historial, Análisis, Hallazgos ni Admin.</p>
     </div>
   );
 }
@@ -2370,7 +2909,7 @@ function UsuarioEditForm({ usuario, onSave, onCancel, primary }) {
   return (
     <div className="space-y-2">
       <input value={u.nombre} onChange={(e) => setU({ ...u, nombre: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Nombre" />
-      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="ContraseÃ±a" />
+      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Contraseña" />
       <select value={u.rol} onChange={(e) => setU({ ...u, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
         <option value="usuario">Usuario (solo hace inspecciones)</option>
         <option value="administrador">Administrador (acceso total)</option>
@@ -2391,18 +2930,18 @@ function AdminAcercaDe({ primary }) {
         <h3 className="font-bold text-base" style={{ fontFamily: "Oswald, sans-serif" }}>Acerca de este checklist</h3>
       </div>
       <p className="text-sm text-gray-600">Creado por <span className="font-bold">{CREADO_POR}</span></p>
-      <p className="text-sm text-gray-400 mb-3">VersiÃ³n actual: <span className="font-bold" style={{ color: primary }}>v{APP_VERSION}</span></p>
+      <p className="text-sm text-gray-400 mb-3">Versión actual: <span className="font-bold" style={{ color: primary }}>v{APP_VERSION}</span></p>
 
       <h4 className="text-xs font-bold text-gray-500 uppercase mb-1.5">Historial de versiones</h4>
       <div className="space-y-2">
         {CHANGELOG.map((c) => (
           <div key={c.version} className="border-l-2 pl-2.5" style={{ borderColor: primary }}>
-            <p className="text-sm font-bold">v{c.version} <span className="text-xs font-normal text-gray-400">Â· {c.fecha}</span></p>
+            <p className="text-sm font-bold">v{c.version} <span className="text-xs font-normal text-gray-400">· {c.fecha}</span></p>
             <p className="text-xs text-gray-600">{c.cambios}</p>
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-gray-400 mt-3">La versiÃ³n se actualiza cada vez que se realizan ajustes significativos a la aplicaciÃ³n.</p>
+      <p className="text-[11px] text-gray-400 mt-3">La versión se actualiza cada vez que se realizan ajustes significativos a la aplicación.</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, Award, BarChart3, BriefcaseBusiness, CalendarClock,
+  AlertTriangle, Award, BarChart3, CalendarClock,
   ClipboardCheck, Download, FileText, GraduationCap, ImagePlus, Pencil,
   Save, ShieldCheck, Trash2, UserPlus, Users, X,
 } from "lucide-react";
@@ -80,6 +80,113 @@ function openPrintDocument(title, html) {
   setTimeout(() => w.print(), 250);
 }
 
+function downloadTextFile(filename, content, type = "text/html;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function shareDocument({ filename, html, title, text }) {
+  const file = new File([html], filename, { type: "text/html" });
+  if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+    await navigator.share({ title, text, files: [file] });
+    return;
+  }
+  downloadTextFile(filename, html);
+  window.open(`https://wa.me/?text=${encodeURIComponent(`${text || title}\n\nEl archivo se descargó en la tablet. Adjuntalo desde WhatsApp si el navegador no permite enviarlo automaticamente.`)}`, "_blank");
+}
+
+function SignaturePad({ value, onChange, label }) {
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+  const point = (event) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const touch = event.touches?.[0] || event.changedTouches?.[0];
+    const clientX = touch ? touch.clientX : event.clientX;
+    const clientY = touch ? touch.clientY : event.clientY;
+    return { x: ((clientX - rect.left) / rect.width) * canvas.width, y: ((clientY - rect.top) / rect.height) * canvas.height };
+  };
+  const start = (event) => {
+    event.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = point(event);
+    drawing.current = true;
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  };
+  const move = (event) => {
+    if (!drawing.current) return;
+    event.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = point(event);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  };
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    onChange(canvasRef.current.toDataURL("image/png"));
+  };
+  const clear = () => {
+    const canvas = canvasRef.current;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  };
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!value) return;
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    img.src = value;
+  }, [value]);
+  return (
+    <div className="border rounded-xl p-2 bg-gray-50">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
+        <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={520}
+        height={170}
+        className="w-full h-36 bg-white rounded-lg border touch-none"
+        onMouseDown={start}
+        onMouseMove={move}
+        onMouseUp={end}
+        onMouseLeave={end}
+        onTouchStart={start}
+        onTouchMove={move}
+        onTouchEnd={end}
+      />
+    </div>
+  );
+}
+
+function EvidenceActions({ onChange, multiple = false }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      <label className="border rounded-md px-2 py-1.5 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer">
+        <ImagePlus size={13} /> Camara
+        <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
+      </label>
+      <label className="border rounded-md px-2 py-1.5 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer">
+        <Download size={13} /> Galeria
+        <input type="file" accept="image/*" multiple={multiple} onChange={onChange} className="hidden" />
+      </label>
+    </div>
+  );
+}
+
 function evaluationHtml(e, colaborador, plan) {
   const criteriaRows = (e.criteria || []).map((c) => `
     <tr>
@@ -96,6 +203,9 @@ function evaluationHtml(e, colaborador, plan) {
       <small>${escapeHtml(ev.observation)}</small>
     </div>
   `).join("");
+  const signature = (src, label) => src
+    ? `<div class="firma signed"><img src="${src}" /><p>${label}</p></div>`
+    : `<div class="firma">${label}</div>`;
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -116,7 +226,10 @@ function evaluationHtml(e, colaborador, plan) {
     .photo{border:1px solid #ddd;border-radius:8px;padding:8px;break-inside:avoid}
     .photo img{max-width:100%;height:180px;object-fit:cover;border-radius:6px}
     .firmas{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}
-    .firma{border-top:1px solid #111827;padding-top:8px;text-align:center}
+    .firma{border-top:1px solid #111827;padding-top:8px;text-align:center;min-height:90px}
+    .signed{border:1px solid #d1d5db;border-radius:8px;padding:8px;border-top:1px solid #d1d5db}
+    .signed img{width:100%;height:70px;object-fit:contain}
+    .signed p{border-top:1px solid #111827;margin:6px 0 0;padding-top:5px}
     @media print{body{margin:16mm}.photo img{height:140px}}
   </style>
 </head>
@@ -146,7 +259,7 @@ function evaluationHtml(e, colaborador, plan) {
   <div class="box">${plan ? `${escapeHtml(plan.hallazgos)}<br><b>Acciones:</b> ${escapeHtml(plan.acciones)}<br><b>Responsable:</b> ${escapeHtml(plan.responsable)}<br><b>Compromiso:</b> ${escapeHtml(plan.fechaCompromiso)}<br><b>Estado:</b> ${escapeHtml(plan.estado)}` : "No aplica."}</div>
   <h2>Registro fotografico</h2>
   ${evidence ? `<div class="photos">${evidence}</div>` : '<div class="box">Sin registro fotografico.</div>'}
-  <div class="firmas"><div class="firma">Colaborador</div><div class="firma">Evaluador</div></div>
+  <div class="firmas">${signature(e.firmaColaborador, "Colaborador")}${signature(e.firmaEvaluador, "Evaluador")}</div>
 </body>
 </html>`;
 }
@@ -377,16 +490,6 @@ export default function TalentoHumanoView({
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex items-center gap-2">
-          <BriefcaseBusiness size={20} color={primary} />
-          <div>
-            <h2 className="text-base font-black text-gray-800 m-0" style={{ fontFamily: "Oswald, sans-serif" }}>Gestion del Talento Humano</h2>
-            <p className="text-xs text-gray-400">Evaluaciones, competencias, desarrollo y certificaciones.</p>
-          </div>
-        </div>
-      </div>
-
       <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto">
         {subs.map((s) => (
           <button key={s.id} onClick={() => setSub(s.id)} className="px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap" style={{ background: sub === s.id ? primary : "#F1F3F4", color: sub === s.id ? "#fff" : "#5C6673" }}>
@@ -554,10 +657,10 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
             <option value="">Supervisor</option>
             {usuarios.map((u) => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}
           </select>
-          <label className="border rounded-md px-3 py-2 text-sm flex items-center justify-center gap-2 cursor-pointer">
-            <ImagePlus size={15} /> {form.foto ? "Cambiar foto" : "Foto opcional"}
-            <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden" />
-          </label>
+          <div className="border rounded-md px-3 py-2">
+            <p className="text-xs font-bold text-gray-500 uppercase mb-1">{form.foto ? "Cambiar foto" : "Foto opcional"}</p>
+            <EvidenceActions onChange={handlePhoto} />
+          </div>
           {form.foto && (
             <div className="flex items-center justify-center gap-2 bg-gray-50 rounded-md px-3 py-2">
               <img src={form.foto} alt="" className="w-12 h-12 rounded-md object-cover border" />
@@ -658,6 +761,22 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
     : 0;
   const openIndividual = (e) => openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, colaborador, planes.find((p) => p.evaluationId === e.id)));
   const openAccumulated = () => openPrintDocument(`Acumulado - ${colaborador.nombre}`, accumulatedHtml(colaborador, evaluaciones, planes));
+  const shareIndividual = async (e) => {
+    await shareDocument({
+      filename: `evaluacion-${e.colaboradorNombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${fmtFecha(e.fecha).replace(/[^a-z0-9]+/gi, "-")}.html`,
+      html: evaluationHtml(e, colaborador, plans.find((p) => p.evaluationId === e.id)),
+      title: `Evaluacion - ${e.colaboradorNombre}`,
+      text: `Evaluacion ${e.colaboradorNombre}: ${e.resultado?.percentage || 0}%`,
+    });
+  };
+  const shareAccumulated = async () => {
+    await shareDocument({
+      filename: `acumulado-${colaborador.nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
+      html: accumulatedHtml(colaborador, evaluaciones, planes),
+      title: `Acumulado - ${colaborador.nombre}`,
+      text: `Reporte acumulado de evaluaciones de ${colaborador.nombre}`,
+    });
+  };
 
   return (
     <Modal title={colaborador.nombre} onClose={onClose} wide>
@@ -701,6 +820,14 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
       >
         <FileText size={15} /> Descargar PDF acumulado con observaciones
       </button>
+      <button
+        onClick={shareAccumulated}
+        disabled={!evaluaciones.length}
+        className="w-full mt-2 py-2.5 rounded-md font-bold border flex items-center justify-center gap-2 disabled:opacity-40"
+        style={{ borderColor: primary, color: primary }}
+      >
+        <Download size={15} /> Enviar acumulado por WhatsApp
+      </button>
 
       <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">
@@ -736,6 +863,9 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
               )}
               <button onClick={() => openIndividual(e)} className="mt-2 w-full py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1" style={{ color: primary, borderColor: primary }}>
                 <Download size={13} /> Descargar PDF individual
+              </button>
+              <button onClick={() => shareIndividual(e)} className="mt-2 w-full py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1" style={{ color: primary, borderColor: primary }}>
+                <Download size={13} /> Enviar por WhatsApp
               </button>
             </div>
           );
@@ -783,7 +913,16 @@ function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, o
     const plan = planes.find((p) => p.evaluationId === e.id);
     openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan));
   };
-
+  const shareEvaluationReport = async (e) => {
+    const person = colaboradores.find((c) => c.id === e.colaboradorId);
+    const plan = planes.find((p) => p.evaluationId === e.id);
+    await shareDocument({
+      filename: `evaluacion-${e.colaboradorNombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
+      html: evaluationHtml(e, person, plan),
+      title: `Evaluacion - ${e.colaboradorNombre}`,
+      text: `Evaluacion ${e.colaboradorNombre}: ${e.resultado?.percentage || 0}%`,
+    });
+  };
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3">
@@ -819,6 +958,9 @@ function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, o
                   <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
                     <FileText size={12} /> PDF
                   </button>
+                  <button onClick={() => shareEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                    <Download size={12} /> WhatsApp
+                  </button>
                   <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
                     <Trash2 size={12} /> Eliminar
                   </button>
@@ -838,6 +980,8 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   const [periodicidad, setPeriodicidad] = useState(REVIEW_PERIODS[0]);
   const [criteria, setCriteria] = useState(() => criteriaFor("ingreso", config, "cocina"));
   const [generalNotes, setGeneralNotes] = useState("");
+  const [firmaColaborador, setFirmaColaborador] = useState("");
+  const [firmaEvaluador, setFirmaEvaluador] = useState("");
   const [saved, setSaved] = useState(null);
   const colaborador = colaboradores.find((c) => c.id === colaboradorId);
   const result = calculateResult(criteria);
@@ -870,6 +1014,8 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
       criteria,
       resultado: result,
       observaciones: generalNotes,
+      firmaColaborador,
+      firmaEvaluador,
     };
     onEvaluaciones([evaluation, ...evaluaciones]);
     if (result.percentage < 75) {
@@ -890,6 +1036,8 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
     setSaved(evaluation);
     setCriteria(criteriaFor(type, config, profile));
     setGeneralNotes("");
+    setFirmaColaborador("");
+    setFirmaEvaluador("");
   };
 
   const deleteEvaluation = (id) => {
@@ -947,6 +1095,10 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
 
       <div className="bg-white rounded-xl p-3 space-y-2">
         <textarea value={generalNotes} onChange={(e) => setGeneralNotes(e.target.value)} rows={3} placeholder="Observaciones generales" className="w-full border rounded-md px-3 py-2 text-sm" />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <SignaturePad label="Firma colaborador" value={firmaColaborador} onChange={setFirmaColaborador} />
+          <SignaturePad label="Firma evaluador" value={firmaEvaluador} onChange={setFirmaEvaluador} />
+        </div>
         <button onClick={save} disabled={!colaborador} className="w-full py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: primary }}>
           <Save size={16} /> Guardar evaluacion
         </button>
@@ -971,6 +1123,9 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
                     <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
                     <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
                       <FileText size={12} /> PDF
+                    </button>
+                    <button onClick={() => shareEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                      <Download size={12} /> WhatsApp
                     </button>
                     <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
                       <Trash2 size={12} /> Eliminar
@@ -1002,11 +1157,9 @@ function CriterionRow({ criterion, onChange }) {
       </div>
       <div className="grid sm:grid-cols-[1fr_150px] gap-2 mt-2">
         <input value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} placeholder="Observaciones" className="border rounded-md px-2 py-1.5 text-sm" />
-        <label className="border rounded-md px-2 py-1.5 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer">
-          <ImagePlus size={13} /> Camara / archivo
-          <input type="file" accept="image/*" capture="environment" onChange={handleEvidence} className="hidden" />
-        </label>
+        <EvidenceActions onChange={handleEvidence} />
       </div>
+      {criterion.evidence && <img src={criterion.evidence} alt="" className="mt-2 h-24 w-full object-cover rounded-md border" />}
     </div>
   );
 }
