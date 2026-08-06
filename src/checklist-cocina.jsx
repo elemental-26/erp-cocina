@@ -32,10 +32,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.1.0";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "2.1.0", fecha: APP_VERSION_DATE, cambios: "Firma con boton fijo visible, evidencia plegable, inspecciones sin fila de encabezados, KPIs en graficas y talento humano con datos/foto en dos zonas." },
   { version: "2.0.0", fecha: APP_VERSION_DATE, cambios: "Inspecciones y EPP compactas en filas horizontales con observaciones desplegables, y KPIs de calidad convertidos en graficos de lectura rapida." },
   { version: "1.9.0", fecha: APP_VERSION_DATE, cambios: "Rediseño de inspecciones, EPP y evaluaciones con filas operativas tipo bosquejo, y KPIs propios de calidad en analisis." },
   { version: "1.8.0", fecha: APP_VERSION_DATE, cambios: "Panel de firma estabilizado para lapiz o dedo, con bloqueo de desplazamiento mientras se firma." },
@@ -691,9 +692,9 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
   );
 }
 
-function ChecklistItemRow({ item, status, observation, evidence, expanded, onToggleObservation, onStatus, onObservation, onEvidence, primary }) {
+function ChecklistItemRow({ item, status, observation, evidence, expanded, evidenceExpanded, onToggleObservation, onToggleEvidence, onStatus, onObservation, onEvidence, primary }) {
   return (
-    <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 items-start border-b border-gray-100 py-1.5 last:border-0 min-w-[820px]">
+    <div className="grid grid-cols-[minmax(190px,1fr)_190px_minmax(210px,1fr)_112px] gap-1.5 items-start border-b border-gray-100 py-1.5 last:border-0 min-w-[720px]">
       <div className="px-2 py-1.5 min-h-14 flex items-center">
         <p className="text-sm font-semibold text-gray-700 leading-snug">{item.texto}</p>
       </div>
@@ -722,7 +723,20 @@ function ChecklistItemRow({ item, status, observation, evidence, expanded, onTog
         )}
       </div>
       <div className="px-1 py-1">
-        <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} />
+        <button
+          type="button"
+          onClick={onToggleEvidence}
+          className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-center gap-1"
+          style={{ borderColor: evidenceExpanded ? primary : "#D8DCE1" }}
+        >
+          <ImagePlus size={16} />
+          {evidence && <Check size={13} color="#1E7A46" />}
+        </button>
+        {evidenceExpanded && (
+          <div className="mt-1">
+            <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} compact />
+          </div>
+        )}
         {evidence && <img src={evidence} alt="" className="mt-1 h-10 w-full object-cover rounded-md border" />}
       </div>
     </div>
@@ -735,6 +749,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   const [itemNotes, setItemNotes] = useState({});
   const [itemEvidence, setItemEvidence] = useState({});
   const [expandedNoteId, setExpandedNoteId] = useState("");
+  const [expandedEvidenceId, setExpandedEvidenceId] = useState("");
   const [responsableId, setResponsableId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
@@ -758,6 +773,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     setItemNotes({});
     setItemEvidence({});
     setExpandedNoteId("");
+    setExpandedEvidenceId("");
     setResponsableId("");
     setObservaciones("");
     setEvidencias([]);
@@ -882,7 +898,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
       </div>
 
       <div className="space-y-3">
-        <div className="hidden">
+        {/*
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Users size={12} /> Responsable del area</label>
           <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
             <option value="">Seleccionar responsable</option>
@@ -894,17 +910,11 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
               <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
             </div>
           </div>
-        </div>
+        */}
 
         {area && (
           <div className="bg-white rounded-xl p-2 overflow-x-auto">
-            <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 text-[11px] font-bold text-gray-400 uppercase px-2 pb-1 min-w-[820px]">
-              <span>Item</span>
-              <span>Cumplimiento</span>
-              <span>Observaciones</span>
-              <span>Evidencia</span>
-            </div>
-            <div className="min-w-[820px]">
+            <div className="min-w-[720px]">
               {area.items.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -913,9 +923,11 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
                   observation={itemNotes[it.id]}
                   evidence={itemEvidence[it.id]}
                   expanded={expandedNoteId === it.id}
+                  evidenceExpanded={expandedEvidenceId === it.id}
                   primary={primary}
                   onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
                   onToggleObservation={() => setExpandedNoteId((current) => current === it.id ? "" : it.id)}
+                  onToggleEvidence={() => setExpandedEvidenceId((current) => current === it.id ? "" : it.id)}
                   onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
                   onEvidence={(event) => handleItemEvidence(it.id, event)}
                 />
@@ -955,6 +967,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   const [itemNotes, setItemNotes] = useState({});
   const [itemEvidence, setItemEvidence] = useState({});
   const [expandedNoteId, setExpandedNoteId] = useState("");
+  const [expandedEvidenceId, setExpandedEvidenceId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
   const [firmaInspector, setFirmaInspector] = useState("");
@@ -972,6 +985,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     setItemNotes({});
     setItemEvidence({});
     setExpandedNoteId("");
+    setExpandedEvidenceId("");
     setObservaciones("");
     setEvidencias([]);
     setFirmaInspector("");
@@ -1074,7 +1088,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       <div className="bg-white rounded-xl p-2">
         <div className="grid sm:grid-cols-[120px_1fr_150px_auto_auto] gap-2 items-center">
           <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
-          <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); setExpandedNoteId(""); }} className="w-full border rounded-md px-3 py-2 font-semibold">
+          <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); setExpandedNoteId(""); setExpandedEvidenceId(""); }} className="w-full border rounded-md px-3 py-2 font-semibold">
             <option value="">Seleccionar colaborador</option>
             {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
           </select>
@@ -1098,13 +1112,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
           <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
         ) : (
           <>
-            <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 text-[11px] font-bold text-gray-400 uppercase px-2 pb-1 min-w-[820px]">
-              <span>Item</span>
-              <span>Cumplimiento</span>
-              <span>Observaciones</span>
-              <span>Evidencia</span>
-            </div>
-            <div className="min-w-[820px]">
+            <div className="min-w-[720px]">
               {eppItems.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -1113,9 +1121,11 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
                   observation={itemNotes[it.id]}
                   evidence={itemEvidence[it.id]}
                   expanded={expandedNoteId === it.id}
+                  evidenceExpanded={expandedEvidenceId === it.id}
                   primary={primary}
                   onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
                   onToggleObservation={() => setExpandedNoteId((current) => current === it.id ? "" : it.id)}
+                  onToggleEvidence={() => setExpandedEvidenceId((current) => current === it.id ? "" : it.id)}
                   onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
                   onEvidence={(event) => handleItemEvidence(it.id, event)}
                 />
@@ -1164,7 +1174,6 @@ function nextDeviationCode(desviaciones) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
-  const scrollLock = useRef({ body: "", html: "" });
   const [open, setOpen] = useState(false);
 
   const getPoint = (event) => {
@@ -1174,20 +1183,6 @@ function SignaturePad({ value, onChange, label }) {
       x: ((event.clientX - rect.left) / rect.width) * canvas.width,
       y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     };
-  };
-
-  const lockScroll = () => {
-    scrollLock.current = {
-      body: document.body.style.overflow,
-      html: document.documentElement.style.overscrollBehavior,
-    };
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overscrollBehavior = "none";
-  };
-
-  const unlockScroll = () => {
-    document.body.style.overflow = scrollLock.current.body;
-    document.documentElement.style.overscrollBehavior = scrollLock.current.html;
   };
 
   const start = (event) => {
@@ -1244,15 +1239,6 @@ function SignaturePad({ value, onChange, label }) {
     img.src = value;
   }, [open, value]);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    lockScroll();
-    return () => {
-      drawing.current = false;
-      unlockScroll();
-    };
-  }, [open]);
-
   return (
     <div className="border rounded-xl p-2 bg-gray-50">
       <div className="flex items-center justify-between mb-2">
@@ -1270,8 +1256,8 @@ function SignaturePad({ value, onChange, label }) {
         Abrir panel de firma
       </button>
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/70 overflow-y-auto overscroll-contain p-3">
-          <div className="bg-white rounded-2xl w-full max-w-3xl min-h-fit p-3 shadow-2xl mx-auto my-3">
+        <div className="fixed inset-0 z-[80] bg-black/70 p-2 flex items-center justify-center">
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[calc(100svh-1rem)] overflow-y-auto p-3 pb-24 shadow-2xl mx-auto">
             <div className="flex items-center justify-between gap-3 mb-2">
               <p className="font-bold text-sm text-gray-700">{label}</p>
               <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
@@ -1280,7 +1266,7 @@ function SignaturePad({ value, onChange, label }) {
               ref={canvasRef}
               width={900}
               height={320}
-              className="w-full h-[52vh] max-h-80 min-h-56 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
+              className="w-full h-[40svh] max-h-56 min-h-40 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
               style={{ touchAction: "none", userSelect: "none", overscrollBehavior: "none" }}
               onPointerDown={start}
               onPointerMove={move}
@@ -1288,7 +1274,7 @@ function SignaturePad({ value, onChange, label }) {
               onPointerCancel={end}
               onPointerLeave={end}
             />
-            <div className="sticky bottom-0 bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3 pt-3 border-t border-gray-100">
+            <div className="fixed left-2 right-2 bottom-2 z-[90] bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 p-2 border border-gray-200 rounded-xl shadow-xl max-w-3xl mx-auto">
               <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
               <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
               <button type="button" onClick={accept} className="col-span-2 sm:col-auto py-3 px-4 rounded-md text-white text-sm font-black shadow-sm" style={{ background: "#1E7A46" }}>
@@ -1302,15 +1288,15 @@ function SignaturePad({ value, onChange, label }) {
   );
 }
 
-function EvidenceActions({ onChange, primary, multiple = true }) {
+function EvidenceActions({ onChange, primary, multiple = true, compact = false }) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2">
-      <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer bg-white" style={{ borderColor: primary, color: primary }}>
-        <ImagePlus size={16} /> Tomar foto
+    <div className={`flex ${compact ? "gap-1" : "flex-wrap gap-2"} items-center justify-center`}>
+      <label title="Tomar foto" className={`inline-flex items-center justify-center gap-2 rounded-md border font-bold cursor-pointer bg-white ${compact ? "w-12 h-12 p-0" : "px-3 py-2 text-sm"}`} style={{ borderColor: primary, color: primary }}>
+        <ImagePlus size={compact ? 18 : 16} /> {!compact && "Tomar foto"}
         <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
       </label>
-      <label className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border text-sm font-bold cursor-pointer bg-white" style={{ borderColor: "#CBD5E1", color: "#475569" }}>
-        <Download size={16} /> Galeria / archivo
+      <label title="Galeria / archivo" className={`inline-flex items-center justify-center gap-2 rounded-md border font-bold cursor-pointer bg-white ${compact ? "w-12 h-12 p-0" : "px-3 py-2 text-sm"}`} style={{ borderColor: "#CBD5E1", color: "#475569" }}>
+        <Download size={compact ? 18 : 16} /> {!compact && "Galeria / archivo"}
         <input type="file" accept="image/*" multiple={multiple} onChange={onChange} className="hidden" />
       </label>
     </div>
@@ -2110,13 +2096,19 @@ function QualityKpiCard({ label, value, detail, tone = "neutral", progress = 0 }
   const t = tones[tone] || tones.neutral;
   const clamped = Math.max(0, Math.min(100, Number(progress) || 0));
   return (
-    <div className="rounded-xl p-3 text-center border border-gray-100" style={{ background: t.bg }}>
-      <p className="text-[10px] text-gray-500 uppercase font-black leading-tight">{label}</p>
-      <p className="text-2xl font-black leading-none mt-2" style={{ color: t.color }}>{value}</p>
-      <div className="h-2 rounded-full bg-white/80 overflow-hidden mt-3 border border-white">
-        <div className="h-full rounded-full" style={{ width: `${clamped}%`, background: t.color }} />
+    <div className="rounded-xl p-3 text-center border border-gray-100 grid grid-cols-[72px_1fr] gap-2 items-center" style={{ background: t.bg }}>
+      <div className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center mx-auto" style={{ background: `conic-gradient(${t.color} ${clamped * 3.6}deg, #FFFFFF ${clamped * 3.6}deg)` }}>
+        <div className="w-[54px] h-[54px] rounded-full bg-white flex items-center justify-center border border-white">
+          <span className="text-sm font-black leading-none" style={{ color: t.color }}>{value}</span>
+        </div>
       </div>
-      {detail && <p className="text-[11px] text-gray-500 mt-2 leading-tight">{detail}</p>}
+      <div>
+        <p className="text-[10px] text-gray-500 uppercase font-black leading-tight">{label}</p>
+        <div className="h-1.5 rounded-full bg-white/80 overflow-hidden mt-2 border border-white">
+          <div className="h-full rounded-full" style={{ width: `${clamped}%`, background: t.color }} />
+        </div>
+        {detail && <p className="text-[11px] text-gray-500 mt-2 leading-tight">{detail}</p>}
+      </div>
     </div>
   );
 }
@@ -2174,6 +2166,12 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
     { nombre: "EPP", valor: inspeccionesEpp.length ? promedioEpp : 0 },
     { nombre: "Cumplimiento", valor: promedioGeneral },
   ];
+  const riskChartData = [
+    { nombre: "Hallazgos abiertos", valor: abiertos },
+    { nombre: "Reincidencias", valor: recurrencias },
+    { nombre: "Areas criticas", valor: areaCriticas },
+    { nombre: "Desviaciones abiertas", valor: desviacionesAbiertas },
+  ];
 
   return (
     <div className="space-y-3">
@@ -2199,18 +2197,33 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
 
       <div className="bg-white rounded-xl p-3">
         <h3 className="font-bold text-sm mb-3" style={{ fontFamily: "Oswald, sans-serif" }}>KPI de calidad</h3>
-        <div className="h-52 mb-3">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={kpiChartData} margin={{ top: 8, right: 14, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="nombre" tick={{ fontSize: 10 }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(value) => [`${value}%`, "KPI"]} />
-              <Bar dataKey="valor" radius={[6, 6, 0, 0]} fill={accent} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid lg:grid-cols-2 gap-3 mb-3">
+          <div className="rounded-xl border border-gray-100 p-2">
+            <p className="text-[11px] font-black text-gray-400 uppercase mb-2">Desempeno porcentual</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={kpiChartData} margin={{ top: 8, right: 14, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="nombre" tick={{ fontSize: 10 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                <Tooltip formatter={(value) => [`${value}%`, "KPI"]} />
+                <Bar dataKey="valor" radius={[6, 6, 0, 0]} fill={accent} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-xl border border-gray-100 p-2">
+            <p className="text-[11px] font-black text-gray-400 uppercase mb-2">Riesgos abiertos</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={riskChartData} layout="vertical" margin={{ top: 8, right: 16, left: 24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                <YAxis type="category" dataKey="nombre" width={120} tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Bar dataKey="valor" radius={[0, 6, 6, 0]} fill="#B5333D" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="hidden">
           <QualityKpiCard label="Tasa de cierre" value={`${cierrePct}%`} progress={cierrePct} detail={`${cerrados}/${totalHallazgos || 0} hallazgos`} tone={cierrePct >= 85 ? "good" : cierrePct >= 60 ? "warn" : "bad"} />
           <QualityKpiCard label="Hallazgos por inspección" value={hallazgosPorInspeccion} progress={Math.max(0, 100 - Number(hallazgosPorInspeccion) * 30)} detail="Menor es mejor" tone={Number(hallazgosPorInspeccion) <= 1 ? "good" : Number(hallazgosPorInspeccion) <= 2 ? "warn" : "bad"} />
           <QualityKpiCard label="Evidencia documentada" value={`${evidenciaPct}%`} progress={evidenciaPct} detail={`${conEvidencia}/${inspecciones.length || 0} registros`} tone={evidenciaPct >= 80 ? "good" : evidenciaPct >= 50 ? "warn" : "bad"} />

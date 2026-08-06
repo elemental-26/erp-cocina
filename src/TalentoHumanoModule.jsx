@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Award, BarChart3, CalendarClock,
-  ClipboardCheck, Download, FileText, GraduationCap, ImagePlus, Pencil,
+  ChevronRight, ClipboardCheck, Download, FileText, GraduationCap, ImagePlus, Pencil,
   Save, ShieldCheck, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import {
@@ -103,24 +103,11 @@ async function shareDocument({ filename, html, title, text }) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
-  const scrollLock = useRef({ body: "", html: "" });
   const [open, setOpen] = useState(false);
   const point = (event) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     return { x: ((event.clientX - rect.left) / rect.width) * canvas.width, y: ((event.clientY - rect.top) / rect.height) * canvas.height };
-  };
-  const lockScroll = () => {
-    scrollLock.current = {
-      body: document.body.style.overflow,
-      html: document.documentElement.style.overscrollBehavior,
-    };
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overscrollBehavior = "none";
-  };
-  const unlockScroll = () => {
-    document.body.style.overflow = scrollLock.current.body;
-    document.documentElement.style.overscrollBehavior = scrollLock.current.html;
   };
   const start = (event) => {
     event.preventDefault();
@@ -173,14 +160,6 @@ function SignaturePad({ value, onChange, label }) {
     img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     img.src = value;
   }, [open, value]);
-  useEffect(() => {
-    if (!open) return undefined;
-    lockScroll();
-    return () => {
-      drawing.current = false;
-      unlockScroll();
-    };
-  }, [open]);
   return (
     <div className="border rounded-xl p-2 bg-gray-50">
       <div className="flex items-center justify-between mb-2">
@@ -198,8 +177,8 @@ function SignaturePad({ value, onChange, label }) {
         Abrir panel de firma
       </button>
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/70 overflow-y-auto overscroll-contain p-3">
-          <div className="bg-white rounded-2xl w-full max-w-3xl min-h-fit p-3 shadow-2xl mx-auto my-3">
+        <div className="fixed inset-0 z-[80] bg-black/70 p-2 flex items-center justify-center">
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[calc(100svh-1rem)] overflow-y-auto p-3 pb-24 shadow-2xl mx-auto">
             <div className="flex items-center justify-between gap-3 mb-2">
               <p className="font-bold text-sm text-gray-700">{label}</p>
               <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
@@ -208,7 +187,7 @@ function SignaturePad({ value, onChange, label }) {
               ref={canvasRef}
               width={900}
               height={320}
-              className="w-full h-[52vh] max-h-80 min-h-56 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
+              className="w-full h-[40svh] max-h-56 min-h-40 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
               style={{ touchAction: "none", userSelect: "none", overscrollBehavior: "none" }}
               onPointerDown={start}
               onPointerMove={move}
@@ -216,7 +195,7 @@ function SignaturePad({ value, onChange, label }) {
               onPointerCancel={end}
               onPointerLeave={end}
             />
-            <div className="sticky bottom-0 bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3 pt-3 border-t border-gray-100">
+            <div className="fixed left-2 right-2 bottom-2 z-[90] bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 p-2 border border-gray-200 rounded-xl shadow-xl max-w-3xl mx-auto">
               <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
               <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
               <button type="button" onClick={accept} className="col-span-2 sm:col-auto py-3 px-4 rounded-md text-white text-sm font-black shadow-sm" style={{ background: "#1E7A46" }}>
@@ -696,35 +675,37 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
         <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><UserPlus size={15} /> Base unica de personal</h3>
-        <div className="grid sm:grid-cols-2 gap-2">
-          <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="border rounded-md px-3 py-2 text-sm" />
-          <input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="Documento" className="border rounded-md px-3 py-2 text-sm" />
-          <input value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} placeholder="Cargo" className="border rounded-md px-3 py-2 text-sm" />
-          <select value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value, areas: e.target.value ? [e.target.value] : [] })} className="border rounded-md px-3 py-2 text-sm">
-            <option value="">Sin area</option>
-            {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-          </select>
-          <input type="date" value={form.fechaIngreso} onChange={(e) => setForm({ ...form, fechaIngreso: e.target.value })} className="border rounded-md px-3 py-2 text-sm" />
-          <select value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
-            <option>Activo</option>
-            <option>En entrenamiento</option>
-            <option>Inactivo</option>
-            <option>Retirado</option>
-          </select>
-          <select value={form.supervisor} onChange={(e) => setForm({ ...form, supervisor: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
-            <option value="">Supervisor</option>
-            {usuarios.map((u) => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}
-          </select>
-          <div className="border rounded-md px-3 py-2">
-            <p className="text-xs font-bold text-gray-500 uppercase mb-1">{form.foto ? "Cambiar foto" : "Foto opcional"}</p>
-            <EvidenceActions onChange={handlePhoto} />
+        <div className="grid md:grid-cols-[1fr_220px] gap-3 items-start">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="border rounded-md px-3 py-2 text-sm" />
+            <input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="Documento" className="border rounded-md px-3 py-2 text-sm" />
+            <input value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} placeholder="Cargo" className="border rounded-md px-3 py-2 text-sm" />
+            <select value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value, areas: e.target.value ? [e.target.value] : [] })} className="border rounded-md px-3 py-2 text-sm">
+              <option value="">Sin area</option>
+              {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+            </select>
+            <input type="date" value={form.fechaIngreso} onChange={(e) => setForm({ ...form, fechaIngreso: e.target.value })} className="border rounded-md px-3 py-2 text-sm" />
+            <select value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })} className="border rounded-md px-3 py-2 text-sm">
+              <option>Activo</option>
+              <option>En entrenamiento</option>
+              <option>Inactivo</option>
+              <option>Retirado</option>
+            </select>
+            <select value={form.supervisor} onChange={(e) => setForm({ ...form, supervisor: e.target.value })} className="border rounded-md px-3 py-2 text-sm sm:col-span-2">
+              <option value="">Supervisor</option>
+              {usuarios.map((u) => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}
+            </select>
           </div>
-          {form.foto && (
-            <div className="flex items-center justify-center gap-2 bg-gray-50 rounded-md px-3 py-2">
-              <img src={form.foto} alt="" className="w-12 h-12 rounded-md object-cover border" />
-              <button type="button" onClick={() => setForm({ ...form, foto: null })} className="text-xs font-bold text-red-600">Quitar foto</button>
+          <div className="border rounded-xl p-2 bg-gray-50">
+            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Foto del colaborador</p>
+            <div className="h-40 rounded-lg bg-white border overflow-hidden flex items-center justify-center">
+              {form.foto ? <img src={form.foto} alt="" className="w-full h-full object-cover" /> : <Users size={34} className="text-gray-300" />}
             </div>
-          )}
+            <div className="mt-2">
+              <EvidenceActions onChange={handlePhoto} />
+            </div>
+            {form.foto && <button type="button" onClick={() => setForm({ ...form, foto: null })} className="w-full mt-2 text-xs font-bold text-red-600">Quitar foto</button>}
+          </div>
         </div>
         <div className="flex gap-2">
           <button onClick={save} className="flex-1 py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>{editId ? "Guardar cambios" : "Agregar colaborador"}</button>
@@ -1040,6 +1021,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   const [generalNotes, setGeneralNotes] = useState("");
   const [firmaColaborador, setFirmaColaborador] = useState("");
   const [firmaEvaluador, setFirmaEvaluador] = useState("");
+  const [expandedCriterionId, setExpandedCriterionId] = useState("");
   const [saved, setSaved] = useState(null);
   const colaborador = colaboradores.find((c) => c.id === colaboradorId);
   const result = calculateResult(criteria);
@@ -1096,6 +1078,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
     setGeneralNotes("");
     setFirmaColaborador("");
     setFirmaEvaluador("");
+    setExpandedCriterionId("");
   };
 
   const deleteEvaluation = (id) => {
@@ -1145,7 +1128,13 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
           <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
           <div className="space-y-2">
             {section.criteria.map((c) => (
-              <CriterionRow key={c.id} criterion={c} onChange={(id, patch) => setCriteria(criteria.map((item) => item.id === id ? { ...item, ...patch } : item))} />
+              <CriterionRow
+                key={c.id}
+                criterion={c}
+                expanded={expandedCriterionId === c.id}
+                onToggleObservation={() => setExpandedCriterionId((current) => current === c.id ? "" : c.id)}
+                onChange={(id, patch) => setCriteria(criteria.map((item) => item.id === id ? { ...item, ...patch } : item))}
+              />
             ))}
           </div>
         </div>
@@ -1199,7 +1188,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   );
 }
 
-function CriterionRow({ criterion, onChange }) {
+function CriterionRow({ criterion, expanded, onToggleObservation, onChange }) {
   const handleEvidence = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1241,7 +1230,13 @@ function CriterionRow({ criterion, onChange }) {
       </div>
       <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
         <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Observaciones</p>
-        <textarea value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} rows={2} placeholder="Observaciones del aspecto evaluado" className="w-full border rounded-md px-2 py-1.5 text-sm min-h-20" />
+        <button type="button" onClick={onToggleObservation} className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-between gap-2">
+          <span className="truncate">{criterion.observation || "Observaciones"}</span>
+          <ChevronRight size={15} className={`flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </button>
+        {expanded && (
+          <textarea value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} rows={2} autoFocus placeholder="Observaciones del aspecto evaluado" className="w-full mt-1 border rounded-md px-2 py-1.5 text-sm min-h-20" />
+        )}
       </div>
       <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
         <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Evidencia</p>
