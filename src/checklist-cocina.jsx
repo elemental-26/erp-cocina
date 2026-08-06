@@ -32,10 +32,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "2.0.0";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "2.0.0", fecha: APP_VERSION_DATE, cambios: "Inspecciones y EPP compactas en filas horizontales con observaciones desplegables, y KPIs de calidad convertidos en graficos de lectura rapida." },
   { version: "1.9.0", fecha: APP_VERSION_DATE, cambios: "Rediseño de inspecciones, EPP y evaluaciones con filas operativas tipo bosquejo, y KPIs propios de calidad en analisis." },
   { version: "1.8.0", fecha: APP_VERSION_DATE, cambios: "Panel de firma estabilizado para lapiz o dedo, con bloqueo de desplazamiento mientras se firma." },
   { version: "1.7.0", fecha: APP_VERSION_DATE, cambios: "Inicio en cuadricula de modulos, cabecera interna compacta por modulo y navegacion superior para Calidad." },
@@ -690,27 +691,39 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
   );
 }
 
-function ChecklistItemRow({ item, status, observation, evidence, onStatus, onObservation, onEvidence, primary }) {
+function ChecklistItemRow({ item, status, observation, evidence, expanded, onToggleObservation, onStatus, onObservation, onEvidence, primary }) {
   return (
-    <div className="grid xl:grid-cols-[minmax(230px,1fr)_220px_minmax(260px,1.15fr)_170px] lg:grid-cols-[minmax(220px,1fr)_210px_minmax(240px,1.1fr)_160px] gap-2 items-stretch rounded-xl border border-gray-100 bg-white/70 p-2">
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 flex items-center justify-center min-h-20">
-        <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Item</p>
-          <p className="text-sm font-semibold text-gray-700 leading-snug">{item.texto}</p>
-        </div>
+    <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 items-start border-b border-gray-100 py-1.5 last:border-0 min-w-[820px]">
+      <div className="px-2 py-1.5 min-h-14 flex items-center">
+        <p className="text-sm font-semibold text-gray-700 leading-snug">{item.texto}</p>
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Cumplimiento</p>
+      <div className="px-1 py-1">
         <StatusPicker value={status} onChange={onStatus} compact />
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Observaciones</p>
-        <textarea value={observation || ""} onChange={(event) => onObservation(event.target.value)} rows={2} placeholder="Observaciones del punto verificado" className="w-full border rounded-md px-2 py-1.5 text-sm min-h-20" />
+      <div className="px-1 py-1">
+        <button
+          type="button"
+          onClick={onToggleObservation}
+          className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-between gap-2"
+          style={{ borderColor: expanded ? primary : "#D8DCE1" }}
+        >
+          <span className="truncate">{observation ? observation : "Observaciones"}</span>
+          <ChevronRight size={15} className={`flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </button>
+        {expanded && (
+          <textarea
+            value={observation || ""}
+            onChange={(event) => onObservation(event.target.value)}
+            rows={2}
+            autoFocus
+            placeholder="Escribe la observación de este item"
+            className="w-full mt-1 border rounded-md px-2 py-1.5 text-sm min-h-20"
+          />
+        )}
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Evidencia</p>
+      <div className="px-1 py-1">
         <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} />
-        {evidence ? <img src={evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" /> : <div className="mt-2 h-16 rounded-md border border-dashed bg-white flex items-center justify-center text-[10px] text-gray-400">Sin evidencia</div>}
+        {evidence && <img src={evidence} alt="" className="mt-1 h-10 w-full object-cover rounded-md border" />}
       </div>
     </div>
   );
@@ -721,6 +734,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   const [itemStates, setItemStates] = useState({});
   const [itemNotes, setItemNotes] = useState({});
   const [itemEvidence, setItemEvidence] = useState({});
+  const [expandedNoteId, setExpandedNoteId] = useState("");
   const [responsableId, setResponsableId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
@@ -743,6 +757,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     setItemStates({});
     setItemNotes({});
     setItemEvidence({});
+    setExpandedNoteId("");
     setResponsableId("");
     setObservaciones("");
     setEvidencias([]);
@@ -838,29 +853,36 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="flex-1">
-            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Inspeccion de area</h2>
-            <p className="text-xs text-gray-400">Selecciona el area para cargar sus puntos de verificacion.</p>
-          </div>
-          <div className="sm:w-80">
-            <label className="text-xs font-bold text-gray-500 uppercase">Area</label>
-            <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
-              {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-            </select>
-            <button onClick={printBlankChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-              <FileText size={15} /> Imprimir lista
-            </button>
-            <button onClick={shareBlankChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-              <Download size={15} /> WhatsApp
-            </button>
+      <div className="bg-white rounded-xl p-2 space-y-2">
+        <div className="grid sm:grid-cols-[110px_1fr_auto_auto] gap-2 items-center">
+          <label className="text-xs font-bold text-gray-500 uppercase">Area</label>
+          <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 font-semibold">
+            {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+          </select>
+          <button onClick={printBlankChecklist} className="px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+            <FileText size={15} /> Imprimir
+          </button>
+          <button onClick={shareBlankChecklist} className="px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+            <Download size={15} /> WhatsApp
+          </button>
+        </div>
+        <div className="grid sm:grid-cols-[110px_1fr_150px] gap-2 items-center">
+          <label className="text-xs font-bold text-gray-500 uppercase flex items-center justify-center gap-1"><Users size={12} /> Responsable</label>
+          <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 font-semibold">
+            <option value="">Seleccionar responsable</option>
+            {areaPeople.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Personal"}</option>)}
+          </select>
+          <div className="text-center">
+            <p className="text-xs font-bold text-gray-500">{answeredCount}/{totalItems} items</p>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden mt-1">
+              <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
+            </div>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <div className="bg-white rounded-xl p-3">
+        <div className="hidden">
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Users size={12} /> Responsable del area</label>
           <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
             <option value="">Seleccionar responsable</option>
@@ -875,17 +897,14 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
         </div>
 
         {area && (
-          <div className="bg-white rounded-xl p-3">
-            <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-              <ListChecks size={16} /> Puntos de verificacion
-            </h3>
-            <div className="hidden lg:grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 text-[11px] font-bold text-gray-400 uppercase px-1 pb-1">
-              <span>Aspecto</span>
-              <span>Puntaje</span>
+          <div className="bg-white rounded-xl p-2 overflow-x-auto">
+            <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 text-[11px] font-bold text-gray-400 uppercase px-2 pb-1 min-w-[820px]">
+              <span>Item</span>
+              <span>Cumplimiento</span>
               <span>Observaciones</span>
               <span>Evidencia</span>
             </div>
-            <div>
+            <div className="min-w-[820px]">
               {area.items.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -893,8 +912,10 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
                   status={itemStates[it.id]}
                   observation={itemNotes[it.id]}
                   evidence={itemEvidence[it.id]}
+                  expanded={expandedNoteId === it.id}
                   primary={primary}
                   onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
+                  onToggleObservation={() => setExpandedNoteId((current) => current === it.id ? "" : it.id)}
                   onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
                   onEvidence={(event) => handleItemEvidence(it.id, event)}
                 />
@@ -933,6 +954,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   const [itemStates, setItemStates] = useState({});
   const [itemNotes, setItemNotes] = useState({});
   const [itemEvidence, setItemEvidence] = useState({});
+  const [expandedNoteId, setExpandedNoteId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
   const [firmaInspector, setFirmaInspector] = useState("");
@@ -949,6 +971,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     setItemStates({});
     setItemNotes({});
     setItemEvidence({});
+    setExpandedNoteId("");
     setObservaciones("");
     setEvidencias([]);
     setFirmaInspector("");
@@ -1048,46 +1071,40 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="flex-1">
-            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Lista de verificacion de EPP</h2>
-            <p className="text-xs text-gray-400">Usa los colaboradores activos del modulo de talento humano, sin duplicar personal.</p>
+      <div className="bg-white rounded-xl p-2">
+        <div className="grid sm:grid-cols-[120px_1fr_150px_auto_auto] gap-2 items-center">
+          <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
+          <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); setExpandedNoteId(""); }} className="w-full border rounded-md px-3 py-2 font-semibold">
+            <option value="">Seleccionar colaborador</option>
+            {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
+          </select>
+          <div className="text-center">
+            <p className="text-xs font-bold text-gray-500">{answeredCount}/{totalItems} items</p>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden mt-1">
+              <div className="h-full rounded-full" style={{ width: `${totalItems ? (answeredCount / totalItems) * 100 : 0}%`, background: accent }} />
+            </div>
           </div>
-          <div className="sm:w-96">
-            <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
-            <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); }} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
-              <option value="">Seleccionar colaborador</option>
-              {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
-            </select>
-            <button onClick={printEppChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-              <FileText size={15} /> Imprimir lista EPP
-            </button>
-            <button onClick={shareEppChecklist} className="w-full mt-2 px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-              <Download size={15} /> WhatsApp
-            </button>
-          </div>
+          <button onClick={printEppChecklist} className="px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+            <FileText size={15} /> Imprimir
+          </button>
+          <button onClick={shareEppChecklist} className="px-3 py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+            <Download size={15} /> WhatsApp
+          </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-sm flex items-center justify-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-            <ShieldCheck size={16} /> Elementos a verificar
-          </h3>
-          <p className="text-xs text-gray-400">{answeredCount}/{totalItems} items</p>
-        </div>
+      <div className="bg-white rounded-xl p-2 overflow-x-auto">
         {eppItems.length === 0 ? (
           <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
         ) : (
           <>
-            <div className="hidden lg:grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 text-[11px] font-bold text-gray-400 uppercase px-1 pb-1">
-              <span>Aspecto</span>
-              <span>Puntaje</span>
+            <div className="grid grid-cols-[minmax(210px,1fr)_210px_minmax(220px,1fr)_142px] gap-2 text-[11px] font-bold text-gray-400 uppercase px-2 pb-1 min-w-[820px]">
+              <span>Item</span>
+              <span>Cumplimiento</span>
               <span>Observaciones</span>
               <span>Evidencia</span>
             </div>
-            <div>
+            <div className="min-w-[820px]">
               {eppItems.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -1095,8 +1112,10 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
                   status={itemStates[it.id]}
                   observation={itemNotes[it.id]}
                   evidence={itemEvidence[it.id]}
+                  expanded={expandedNoteId === it.id}
                   primary={primary}
                   onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
+                  onToggleObservation={() => setExpandedNoteId((current) => current === it.id ? "" : it.id)}
                   onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
                   onEvidence={(event) => handleItemEvidence(it.id, event)}
                 />
@@ -2081,7 +2100,7 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
 /* ---------------------------------- análisis ---------------------------------- */
 
-function QualityKpiCard({ label, value, detail, tone = "neutral" }) {
+function QualityKpiCard({ label, value, detail, tone = "neutral", progress = 0 }) {
   const tones = {
     good: { color: "#1E7A46", bg: "#E4F4EA" },
     warn: { color: "#B4750E", bg: "#FCF1DC" },
@@ -2089,10 +2108,14 @@ function QualityKpiCard({ label, value, detail, tone = "neutral" }) {
     neutral: { color: "#1F2B3A", bg: "#F1F3F4" },
   };
   const t = tones[tone] || tones.neutral;
+  const clamped = Math.max(0, Math.min(100, Number(progress) || 0));
   return (
     <div className="rounded-xl p-3 text-center border border-gray-100" style={{ background: t.bg }}>
       <p className="text-[10px] text-gray-500 uppercase font-black leading-tight">{label}</p>
       <p className="text-2xl font-black leading-none mt-2" style={{ color: t.color }}>{value}</p>
+      <div className="h-2 rounded-full bg-white/80 overflow-hidden mt-3 border border-white">
+        <div className="h-full rounded-full" style={{ width: `${clamped}%`, background: t.color }} />
+      </div>
       {detail && <p className="text-[11px] text-gray-500 mt-2 leading-tight">{detail}</p>}
     </div>
   );
@@ -2145,6 +2168,12 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
     return Object.values(map).filter((total) => total >= 2).length;
   }, [hallazgos]);
   const desviacionesAbiertas = desviaciones.filter((d) => d.estado !== "Cerrada").length;
+  const kpiChartData = [
+    { nombre: "Cierre", valor: cierrePct },
+    { nombre: "Evidencia", valor: evidenciaPct },
+    { nombre: "EPP", valor: inspeccionesEpp.length ? promedioEpp : 0 },
+    { nombre: "Cumplimiento", valor: promedioGeneral },
+  ];
 
   return (
     <div className="space-y-3">
@@ -2170,15 +2199,26 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
 
       <div className="bg-white rounded-xl p-3">
         <h3 className="font-bold text-sm mb-3" style={{ fontFamily: "Oswald, sans-serif" }}>KPI de calidad</h3>
+        <div className="h-52 mb-3">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={kpiChartData} margin={{ top: 8, right: 14, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="nombre" tick={{ fontSize: 10 }} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+              <Tooltip formatter={(value) => [`${value}%`, "KPI"]} />
+              <Bar dataKey="valor" radius={[6, 6, 0, 0]} fill={accent} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <QualityKpiCard label="Tasa de cierre" value={`${cierrePct}%`} detail={`${cerrados}/${totalHallazgos || 0} hallazgos`} tone={cierrePct >= 85 ? "good" : cierrePct >= 60 ? "warn" : "bad"} />
-          <QualityKpiCard label="Hallazgos por inspección" value={hallazgosPorInspeccion} detail="Promedio operativo" tone={Number(hallazgosPorInspeccion) <= 1 ? "good" : Number(hallazgosPorInspeccion) <= 2 ? "warn" : "bad"} />
-          <QualityKpiCard label="Evidencia documentada" value={`${evidenciaPct}%`} detail={`${conEvidencia}/${inspecciones.length || 0} registros`} tone={evidenciaPct >= 80 ? "good" : evidenciaPct >= 50 ? "warn" : "bad"} />
-          <QualityKpiCard label="Reincidencias" value={recurrencias} detail="Mismo responsable e incumplimiento" tone={recurrencias === 0 ? "good" : recurrencias <= 2 ? "warn" : "bad"} />
-          <QualityKpiCard label="Cumplimiento EPP" value={inspeccionesEpp.length ? `${promedioEpp}%` : "N/A"} detail={`${inspeccionesEpp.length} verificación(es)`} tone={!inspeccionesEpp.length || promedioEpp >= 90 ? "good" : promedioEpp >= 75 ? "warn" : "bad"} />
-          <QualityKpiCard label="Inspecciones de área" value={inspeccionesArea.length} detail="Registros operativos" tone="neutral" />
-          <QualityKpiCard label="Áreas críticas" value={areaCriticas} detail="Promedio menor a 75%" tone={areaCriticas === 0 ? "good" : areaCriticas <= 2 ? "warn" : "bad"} />
-          <QualityKpiCard label="Desviaciones abiertas" value={desviacionesAbiertas} detail={`${desviaciones.length} desviación(es)`} tone={desviacionesAbiertas === 0 ? "good" : desviacionesAbiertas <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Tasa de cierre" value={`${cierrePct}%`} progress={cierrePct} detail={`${cerrados}/${totalHallazgos || 0} hallazgos`} tone={cierrePct >= 85 ? "good" : cierrePct >= 60 ? "warn" : "bad"} />
+          <QualityKpiCard label="Hallazgos por inspección" value={hallazgosPorInspeccion} progress={Math.max(0, 100 - Number(hallazgosPorInspeccion) * 30)} detail="Menor es mejor" tone={Number(hallazgosPorInspeccion) <= 1 ? "good" : Number(hallazgosPorInspeccion) <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Evidencia documentada" value={`${evidenciaPct}%`} progress={evidenciaPct} detail={`${conEvidencia}/${inspecciones.length || 0} registros`} tone={evidenciaPct >= 80 ? "good" : evidenciaPct >= 50 ? "warn" : "bad"} />
+          <QualityKpiCard label="Reincidencias" value={recurrencias} progress={Math.max(0, 100 - recurrencias * 25)} detail="Menor es mejor" tone={recurrencias === 0 ? "good" : recurrencias <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Cumplimiento EPP" value={inspeccionesEpp.length ? `${promedioEpp}%` : "N/A"} progress={promedioEpp} detail={`${inspeccionesEpp.length} verificación(es)`} tone={!inspeccionesEpp.length || promedioEpp >= 90 ? "good" : promedioEpp >= 75 ? "warn" : "bad"} />
+          <QualityKpiCard label="Inspecciones de área" value={inspeccionesArea.length} progress={Math.min(100, inspeccionesArea.length * 10)} detail="Registros operativos" tone="neutral" />
+          <QualityKpiCard label="Áreas críticas" value={areaCriticas} progress={Math.max(0, 100 - areaCriticas * 30)} detail="Menor es mejor" tone={areaCriticas === 0 ? "good" : areaCriticas <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Desviaciones abiertas" value={desviacionesAbiertas} progress={Math.max(0, 100 - desviacionesAbiertas * 25)} detail="Menor es mejor" tone={desviacionesAbiertas === 0 ? "good" : desviacionesAbiertas <= 2 ? "warn" : "bad"} />
         </div>
       </div>
 
