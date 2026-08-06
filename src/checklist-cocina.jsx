@@ -32,10 +32,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "1.8.0", fecha: APP_VERSION_DATE, cambios: "Panel de firma estabilizado para lapiz o dedo, con bloqueo de desplazamiento mientras se firma." },
   { version: "1.7.0", fecha: APP_VERSION_DATE, cambios: "Inicio en cuadricula de modulos, cabecera interna compacta por modulo y navegacion superior para Calidad." },
   { version: "1.6.0", fecha: "2026-08-05", cambios: "Firmas tactiles extendidas a documentos generados, evidencias desde camara/galeria y opcion de compartir por WhatsApp/Web Share." },
   { version: "1.5.0", fecha: "2026-08-05", cambios: "Modulo de gestion de desviaciones y acciones correctivas con evidencia fotografica, firmas tactiles, documento imprimible y verificacion de eficacia." },
@@ -281,18 +282,18 @@ function StampGauge({ pct, size = 128 }) {
   const color = clamped >= 90 ? "#1E7A46" : clamped >= 70 ? "#B4750E" : "#B5333D";
   return (
     <div
-      className="relative flex items-center justify-center rounded-full"
+      className="relative flex items-center justify-center rounded-full overflow-hidden mx-auto"
       style={{
-        width: size, height: size,
+        width: size, height: size, minWidth: size,
         background: `conic-gradient(${color} ${angle}deg, #E7E9EC ${angle}deg)`,
       }}
     >
       <div
-        className="absolute rounded-full flex flex-col items-center justify-center border-2 border-dashed"
-        style={{ width: size - 18, height: size - 18, background: "#fff", borderColor: color, transform: "rotate(-8deg)" }}
+        className="absolute rounded-full flex flex-col items-center justify-center border border-dashed text-center px-2"
+        style={{ width: size - 24, height: size - 24, background: "#fff", borderColor: color }}
       >
-        <span className="text-2xl font-black" style={{ color, transform: "rotate(8deg)" }}>{Math.round(clamped)}%</span>
-        <span className="text-[9px] font-bold tracking-widest uppercase" style={{ color, transform: "rotate(8deg)" }}>Cumplimiento</span>
+        <span className="text-xl font-black leading-none" style={{ color }}>{Math.round(clamped)}%</span>
+        <span className="text-[9px] font-bold uppercase leading-tight mt-1" style={{ color }}>Cumplimiento</span>
       </div>
     </div>
   );
@@ -510,10 +511,13 @@ export default function App() {
     <div
       className="erp-touch min-h-screen flex flex-col relative"
       style={{
-        background: "#F1F3F4",
+        background: config?.appBackground || "#F1F3F4",
         fontFamily: config?.fontFamily || "Inter, sans-serif",
         fontSize: `${config?.fontScale || 125}%`,
         "--erp-font-factor": (config?.fontScale || 125) / 100,
+        "--erp-cell-bg": config?.cellBackground || "#FFFFFF",
+        "--erp-field-border": `${config?.fieldBorderWidth || 1}px`,
+        "--erp-field-padding-y": `${config?.fieldPaddingY || 9}px`,
       }}
     >
       <style>{`
@@ -684,9 +688,35 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
   );
 }
 
+function ChecklistItemRow({ item, status, observation, evidence, onStatus, onObservation, onEvidence, primary }) {
+  return (
+    <div className="grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 items-start border-b border-gray-100 py-2 last:border-0">
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Aspecto</p>
+        <p className="text-sm text-gray-700 leading-snug">{item.texto}</p>
+      </div>
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Puntaje</p>
+        <StatusPicker value={status} onChange={onStatus} />
+      </div>
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Observaciones</p>
+        <textarea value={observation || ""} onChange={(event) => onObservation(event.target.value)} rows={1} placeholder="Observaciones" className="w-full border rounded-md px-2 py-1.5 text-sm" />
+      </div>
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Evidencia</p>
+        <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} />
+        {evidence && <img src={evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" />}
+      </div>
+    </div>
+  );
+}
+
 function AreaInspectionView({ areas, personas, currentUser, accent, primary, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
+  const [itemNotes, setItemNotes] = useState({});
+  const [itemEvidence, setItemEvidence] = useState({});
   const [responsableId, setResponsableId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
@@ -707,6 +737,8 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   const resetForm = (newAreaId = areas[0]?.id || "") => {
     setAreaId(newAreaId);
     setItemStates({});
+    setItemNotes({});
+    setItemEvidence({});
     setResponsableId("");
     setObservaciones("");
     setEvidencias([]);
@@ -722,9 +754,17 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     e.target.value = "";
   };
 
+  const handleItemEvidence = async (itemId, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const converted = await resizeImageToDataUrl(file, 520);
+    setItemEvidence((prev) => ({ ...prev, [itemId]: converted }));
+    e.target.value = "";
+  };
+
   const handleSave = async () => {
     if (!allAnswered || !area) return;
-    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id] }));
+    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
     const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
     const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
     const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
@@ -754,7 +794,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
       responsable: responsable?.nombre || "",
       estado: "abierto",
       fechaCompromiso: "",
-      notas: "",
+      notas: i.observacion || observaciones || "",
     }));
     await onSave(insp, nuevosHallazgos);
     setSaved(true);
@@ -835,12 +875,25 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
               <ListChecks size={16} /> Puntos de verificacion
             </h3>
-            <div className="space-y-3">
+            <div className="hidden lg:grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 text-[11px] font-bold text-gray-400 uppercase px-1 pb-1">
+              <span>Aspecto</span>
+              <span>Puntaje</span>
+              <span>Observaciones</span>
+              <span>Evidencia</span>
+            </div>
+            <div>
               {area.items.map((it) => (
-                <div key={it.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                  <p className="text-sm text-gray-700">{it.texto}</p>
-                  <StatusPicker value={itemStates[it.id]} onChange={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))} />
-                </div>
+                <ChecklistItemRow
+                  key={it.id}
+                  item={it}
+                  status={itemStates[it.id]}
+                  observation={itemNotes[it.id]}
+                  evidence={itemEvidence[it.id]}
+                  primary={primary}
+                  onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
+                  onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
+                  onEvidence={(event) => handleItemEvidence(it.id, event)}
+                />
               ))}
             </div>
           </div>
@@ -874,6 +927,8 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
 function EppChecklistView({ eppItems, personas, currentUser, primary, accent, onSave }) {
   const [personaId, setPersonaId] = useState(personas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
+  const [itemNotes, setItemNotes] = useState({});
+  const [itemEvidence, setItemEvidence] = useState({});
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
   const [firmaInspector, setFirmaInspector] = useState("");
@@ -888,6 +943,8 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   const resetForm = () => {
     setPersonaId(personas[0]?.id || "");
     setItemStates({});
+    setItemNotes({});
+    setItemEvidence({});
     setObservaciones("");
     setEvidencias([]);
     setFirmaInspector("");
@@ -902,9 +959,17 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     e.target.value = "";
   };
 
+  const handleItemEvidence = async (itemId, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const converted = await resizeImageToDataUrl(file, 520);
+    setItemEvidence((prev) => ({ ...prev, [itemId]: converted }));
+    e.target.value = "";
+  };
+
   const handleSave = async () => {
     if (!allAnswered) return;
-    const itemsRes = eppItems.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id] }));
+    const itemsRes = eppItems.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
     const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
     const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
     const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
@@ -936,7 +1001,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       responsable: persona.nombre,
       estado: "abierto",
       fechaCompromiso: "",
-      notas: observaciones || "",
+      notas: i.observacion || observaciones || "",
     }));
     await onSave(insp, nuevosHallazgos);
     setSaved(true);
@@ -987,7 +1052,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
           </div>
           <div className="sm:w-96">
             <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
-            <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); }} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
+            <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); }} className="w-full border rounded-md px-3 py-2 mt-1 font-semibold">
               <option value="">Seleccionar colaborador</option>
               {personas.map((p) => <option key={p.id} value={p.id}>{p.nombre} - {p.cargo || p.rol || "Colaborador"}</option>)}
             </select>
@@ -1011,14 +1076,29 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
         {eppItems.length === 0 ? (
           <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
         ) : (
-          <div className="space-y-3">
-            {eppItems.map((it) => (
-              <div key={it.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                <p className="text-sm text-gray-700">{it.texto}</p>
-                <StatusPicker value={itemStates[it.id]} onChange={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))} />
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="hidden lg:grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 text-[11px] font-bold text-gray-400 uppercase px-1 pb-1">
+              <span>Aspecto</span>
+              <span>Puntaje</span>
+              <span>Observaciones</span>
+              <span>Evidencia</span>
+            </div>
+            <div>
+              {eppItems.map((it) => (
+                <ChecklistItemRow
+                  key={it.id}
+                  item={it}
+                  status={itemStates[it.id]}
+                  observation={itemNotes[it.id]}
+                  evidence={itemEvidence[it.id]}
+                  primary={primary}
+                  onStatus={(v) => setItemStates((s) => ({ ...s, [it.id]: v }))}
+                  onObservation={(v) => setItemNotes((s) => ({ ...s, [it.id]: v }))}
+                  onEvidence={(event) => handleItemEvidence(it.id, event)}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -1061,28 +1141,47 @@ function nextDeviationCode(desviaciones) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
+  const scrollLock = useRef({ body: "", html: "", touch: "" });
+  const [open, setOpen] = useState(false);
 
   const getPoint = (event) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const touch = event.touches?.[0] || event.changedTouches?.[0];
-    const clientX = touch ? touch.clientX : event.clientX;
-    const clientY = touch ? touch.clientY : event.clientY;
     return {
-      x: ((clientX - rect.left) / rect.width) * canvas.width,
-      y: ((clientY - rect.top) / rect.height) * canvas.height,
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     };
+  };
+
+  const lockScroll = () => {
+    scrollLock.current = {
+      body: document.body.style.overflow,
+      html: document.documentElement.style.overscrollBehavior,
+      touch: document.body.style.touchAction,
+    };
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.touchAction = "none";
+  };
+
+  const unlockScroll = () => {
+    document.body.style.overflow = scrollLock.current.body;
+    document.documentElement.style.overscrollBehavior = scrollLock.current.html;
+    document.body.style.touchAction = scrollLock.current.touch;
   };
 
   const start = (event) => {
     event.preventDefault();
     const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.setPointerCapture?.(event.pointerId);
     const ctx = canvas.getContext("2d");
     const p = getPoint(event);
     drawing.current = true;
     ctx.strokeStyle = "#111827";
     ctx.lineWidth = 3;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
   };
@@ -1090,51 +1189,93 @@ function SignaturePad({ value, onChange, label }) {
     if (!drawing.current) return;
     event.preventDefault();
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     const p = getPoint(event);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
   };
-  const end = () => {
+  const end = (event) => {
     if (!drawing.current) return;
+    event?.preventDefault?.();
+    canvasRef.current?.releasePointerCapture?.(event?.pointerId);
     drawing.current = false;
-    onChange(canvasRef.current.toDataURL("image/png"));
   };
   const clear = () => {
     const canvas = canvasRef.current;
-    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    canvas?.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
     onChange("");
+  };
+  const accept = () => {
+    const canvas = canvasRef.current;
+    if (canvas) onChange(canvas.toDataURL("image/png"));
+    setOpen(false);
   };
 
   useEffect(() => {
+    if (!open) return;
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!value) return;
     const img = new Image();
     img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     img.src = value;
-  }, [value]);
+  }, [open, value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    lockScroll();
+    return () => {
+      drawing.current = false;
+      unlockScroll();
+    };
+  }, [open]);
 
   return (
     <div className="border rounded-xl p-2 bg-gray-50">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
-        <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>
+        {value && <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>}
       </div>
-      <canvas
-        ref={canvasRef}
-        width={520}
-        height={170}
-        className="w-full h-36 bg-white rounded-lg border touch-none"
-        onMouseDown={start}
-        onMouseMove={move}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={start}
-        onTouchMove={move}
-        onTouchEnd={end}
-      />
+      {value ? (
+        <img src={value} alt={label} className="w-full h-24 object-contain bg-white rounded-lg border" />
+      ) : (
+        <div className="w-full h-24 bg-white rounded-lg border border-dashed flex items-center justify-center text-xs text-gray-400">
+          Sin firma
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen(true)} className="w-full mt-2 py-2 rounded-md border text-sm font-bold bg-white">
+        Abrir panel de firma
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-3" onTouchMove={(event) => event.preventDefault()}>
+          <div className="bg-white rounded-2xl w-full max-w-3xl p-3 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="font-bold text-sm text-gray-700">{label}</p>
+              <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
+            </div>
+            <canvas
+              ref={canvasRef}
+              width={900}
+              height={320}
+              className="w-full h-[52vh] max-h-80 min-h-56 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
+              style={{ touchAction: "none", userSelect: "none", overscrollBehavior: "none" }}
+              onPointerDown={start}
+              onPointerMove={move}
+              onPointerUp={end}
+              onPointerCancel={end}
+              onPointerLeave={end}
+            />
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
+              <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
+              <button type="button" onClick={accept} className="py-2 rounded-md bg-gray-900 text-white text-sm font-bold">Aceptar firma</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1408,7 +1549,7 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseñas no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif" },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif", appBackground: "#F1F3F4", cellBackground: "#FFFFFF", fieldBorderWidth: 1, fieldPaddingY: 9 },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
@@ -1554,6 +1695,8 @@ function QualityTabs({ tab, setTab, primary, isAdmin }) {
 function InspeccionView({ areas, eppItems, personas, currentUser, accent, primary, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
+  const [itemNotes, setItemNotes] = useState({});
+  const [itemEvidence, setItemEvidence] = useState({});
   const [selectedPersonaIds, setSelectedPersonaIds] = useState([]);
   const [eppStates, setEppStates] = useState({});
   const [observaciones, setObservaciones] = useState("");
@@ -1564,6 +1707,8 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
   const resetForm = (newAreaId) => {
     setAreaId(newAreaId);
     setItemStates({});
+    setItemNotes({});
+    setItemEvidence({});
     setSelectedPersonaIds([]);
     setEppStates({});
     setObservaciones("");
@@ -1583,7 +1728,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
   const handleSave = async () => {
     if (!allAnswered) return;
-    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id] }));
+    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
     const eppRes = selectedPersonaIds.map((pid) => {
       const p = personas.find((x) => x.id === pid);
       return {
@@ -2461,8 +2606,27 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [fontFamily, setFontFamily] = useState(config.fontFamily || "Inter, sans-serif");
   const [watermarkLogo, setWatermarkLogo] = useState(config.watermarkLogo !== false);
   const [inactiveStatsMonths, setInactiveStatsMonths] = useState(config.inactiveStatsMonths || 6);
+  const [appBackground, setAppBackground] = useState(config.appBackground || "#F1F3F4");
+  const [cellBackground, setCellBackground] = useState(config.cellBackground || "#FFFFFF");
+  const [fieldBorderWidth, setFieldBorderWidth] = useState(config.fieldBorderWidth || 1);
+  const [fieldPaddingY, setFieldPaddingY] = useState(config.fieldPaddingY || 9);
   const [logoError, setLogoError] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
+  const configPayload = (nextLogo = logo) => ({
+    ...config,
+    nombre,
+    colorPrimario,
+    colorAccent,
+    logo: nextLogo,
+    fontScale,
+    fontFamily,
+    watermarkLogo,
+    inactiveStatsMonths,
+    appBackground,
+    cellBackground,
+    fieldBorderWidth,
+    fieldPaddingY,
+  });
 
   const handleLogo = async (e) => {
     const file = e.target.files[0];
@@ -2472,7 +2636,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     try {
       const dataUrl = await resizeImageToDataUrl(file, 320);
       setLogo(dataUrl);
-      await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: dataUrl, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
+      await onConfig(configPayload(dataUrl));
     } catch (err) {
       setLogoError(err.message || "No se pudo cargar la imagen.");
     } finally {
@@ -2484,10 +2648,10 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const quitarLogo = async () => {
     setLogo(null);
     setLogoError("");
-    await onConfig({ ...config, nombre, colorPrimario, colorAccent, logo: null, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
+    await onConfig(configPayload(null));
   };
 
-  const guardar = () => onConfig({ ...config, nombre, colorPrimario, colorAccent, logo, fontScale, fontFamily, watermarkLogo, inactiveStatsMonths });
+  const guardar = () => onConfig(configPayload());
   const descargarBackup = () => {
     const payload = {
       createdAt: todayISO(),
@@ -2520,10 +2684,31 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
         </div>
       </div>
 
+      <div className="grid sm:grid-cols-4 gap-3">
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Fondo general</label>
+          <input type="color" value={appBackground} onChange={(e) => setAppBackground(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Fondo de celdas</label>
+          <input type="color" value={cellBackground} onChange={(e) => setCellBackground(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Borde</label>
+          <input type="range" min="1" max="3" value={fieldBorderWidth} onChange={(e) => setFieldBorderWidth(Number(e.target.value))} className="w-full mt-2" />
+          <p className="text-[11px] text-gray-400">{fieldBorderWidth}px</p>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-500 uppercase">Alto de campos</label>
+          <input type="range" min="7" max="14" value={fieldPaddingY} onChange={(e) => setFieldPaddingY(Number(e.target.value))} className="w-full mt-2" />
+          <p className="text-[11px] text-gray-400">{fieldPaddingY}px</p>
+        </div>
+      </div>
+
       <div className="grid sm:grid-cols-3 gap-3">
         <div>
           <label className="text-xs font-bold text-gray-500 uppercase">Tamaño de letra</label>
-          <input type="range" min="100" max="150" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
+          <input type="range" min="100" max="180" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
           <p className="text-[11px] text-gray-400">{fontScale}%</p>
         </div>
         <div>

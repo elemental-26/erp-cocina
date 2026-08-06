@@ -64,13 +64,17 @@ textarea {
 input:not([type="color"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
-  min-height: 56px;
+  min-height: 48px;
   font-size: calc(1rem * var(--erp-font-factor, 1.25)) !important;
   line-height: 1.35;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 textarea {
-  min-height: 136px;
+  min-height: 104px;
+  width: 100%;
+  resize: vertical;
 }
 
 button {
@@ -79,15 +83,22 @@ button {
 
 .erp-touch {
   --erp-font-factor: 1.25;
+  --erp-cell-bg: #fff;
+  --erp-field-border: 1px;
+  --erp-field-padding-y: 9px;
   text-align: center;
+}
+
+.erp-touch .bg-white {
+  background-color: var(--erp-cell-bg, #fff) !important;
 }
 
 .erp-touch input:not([type="color"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]),
 .erp-touch select,
 .erp-touch textarea {
-  border-width: 2px;
+  border-width: var(--erp-field-border, 1px);
   border-radius: 10px;
-  padding-block: 14px;
+  padding-block: var(--erp-field-padding-y, 9px);
   padding-inline: 14px;
 }
 

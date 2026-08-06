@@ -103,71 +103,130 @@ async function shareDocument({ filename, html, title, text }) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
+  const scrollLock = useRef({ body: "", html: "", touch: "" });
+  const [open, setOpen] = useState(false);
   const point = (event) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const touch = event.touches?.[0] || event.changedTouches?.[0];
-    const clientX = touch ? touch.clientX : event.clientX;
-    const clientY = touch ? touch.clientY : event.clientY;
-    return { x: ((clientX - rect.left) / rect.width) * canvas.width, y: ((clientY - rect.top) / rect.height) * canvas.height };
+    return { x: ((event.clientX - rect.left) / rect.width) * canvas.width, y: ((event.clientY - rect.top) / rect.height) * canvas.height };
+  };
+  const lockScroll = () => {
+    scrollLock.current = {
+      body: document.body.style.overflow,
+      html: document.documentElement.style.overscrollBehavior,
+      touch: document.body.style.touchAction,
+    };
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.touchAction = "none";
+  };
+  const unlockScroll = () => {
+    document.body.style.overflow = scrollLock.current.body;
+    document.documentElement.style.overscrollBehavior = scrollLock.current.html;
+    document.body.style.touchAction = scrollLock.current.touch;
   };
   const start = (event) => {
     event.preventDefault();
-    const ctx = canvasRef.current.getContext("2d");
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.setPointerCapture?.(event.pointerId);
+    const ctx = canvas.getContext("2d");
     const p = point(event);
     drawing.current = true;
     ctx.strokeStyle = "#111827";
     ctx.lineWidth = 3;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
   };
   const move = (event) => {
     if (!drawing.current) return;
     event.preventDefault();
+    if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext("2d");
     const p = point(event);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
   };
-  const end = () => {
+  const end = (event) => {
     if (!drawing.current) return;
+    event?.preventDefault?.();
+    canvasRef.current?.releasePointerCapture?.(event?.pointerId);
     drawing.current = false;
-    onChange(canvasRef.current.toDataURL("image/png"));
   };
   const clear = () => {
     const canvas = canvasRef.current;
-    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    canvas?.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
     onChange("");
   };
-  useEffect(() => {
+  const accept = () => {
     const canvas = canvasRef.current;
+    if (canvas) onChange(canvas.toDataURL("image/png"));
+    setOpen(false);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!value) return;
     const img = new Image();
     img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     img.src = value;
-  }, [value]);
+  }, [open, value]);
+  useEffect(() => {
+    if (!open) return undefined;
+    lockScroll();
+    return () => {
+      drawing.current = false;
+      unlockScroll();
+    };
+  }, [open]);
   return (
     <div className="border rounded-xl p-2 bg-gray-50">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
-        <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>
+        {value && <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>}
       </div>
-      <canvas
-        ref={canvasRef}
-        width={520}
-        height={170}
-        className="w-full h-36 bg-white rounded-lg border touch-none"
-        onMouseDown={start}
-        onMouseMove={move}
-        onMouseUp={end}
-        onMouseLeave={end}
-        onTouchStart={start}
-        onTouchMove={move}
-        onTouchEnd={end}
-      />
+      {value ? (
+        <img src={value} alt={label} className="w-full h-24 object-contain bg-white rounded-lg border" />
+      ) : (
+        <div className="w-full h-24 bg-white rounded-lg border border-dashed flex items-center justify-center text-xs text-gray-400">
+          Sin firma
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen(true)} className="w-full mt-2 py-2 rounded-md border text-sm font-bold bg-white">
+        Abrir panel de firma
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-3" onTouchMove={(event) => event.preventDefault()}>
+          <div className="bg-white rounded-2xl w-full max-w-3xl p-3 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="font-bold text-sm text-gray-700">{label}</p>
+              <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
+            </div>
+            <canvas
+              ref={canvasRef}
+              width={900}
+              height={320}
+              className="w-full h-[52vh] max-h-80 min-h-56 bg-white rounded-xl border-2 border-gray-200 cursor-crosshair"
+              style={{ touchAction: "none", userSelect: "none", overscrollBehavior: "none" }}
+              onPointerDown={start}
+              onPointerMove={move}
+              onPointerUp={end}
+              onPointerCancel={end}
+              onPointerLeave={end}
+            />
+            <div className="grid grid-cols-3 gap-2 mt-3">
+              <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
+              <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
+              <button type="button" onClick={accept} className="py-2 rounded-md bg-gray-900 text-white text-sm font-bold">Aceptar firma</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -419,10 +478,10 @@ function StampGauge({ pct, size = 118 }) {
   const angle = (clamped / 100) * 360;
   const color = clamped >= 85 ? "#1E7A46" : clamped >= 60 ? "#B4750E" : "#B5333D";
   return (
-    <div className="relative flex items-center justify-center rounded-full" style={{ width: size, height: size, background: `conic-gradient(${color} ${angle}deg, #E7E9EC ${angle}deg)` }}>
-      <div className="absolute rounded-full flex flex-col items-center justify-center border-2 border-dashed" style={{ width: size - 18, height: size - 18, background: "#fff", borderColor: color }}>
-        <span className="text-2xl font-black" style={{ color }}>{clamped}%</span>
-        <span className="text-[9px] font-bold tracking-widest uppercase" style={{ color }}>Resultado</span>
+    <div className="relative flex items-center justify-center rounded-full overflow-hidden mx-auto" style={{ width: size, height: size, minWidth: size, background: `conic-gradient(${color} ${angle}deg, #E7E9EC ${angle}deg)` }}>
+      <div className="absolute rounded-full flex flex-col items-center justify-center border border-dashed text-center px-2" style={{ width: size - 22, height: size - 22, background: "#fff", borderColor: color }}>
+        <span className="text-xl font-black leading-none" style={{ color }}>{clamped}%</span>
+        <span className="text-[9px] font-bold uppercase leading-tight mt-1" style={{ color }}>Resultado</span>
       </div>
     </div>
   );
@@ -1148,18 +1207,26 @@ function CriterionRow({ criterion, onChange }) {
     onChange(criterion.id, { evidence: await resizeImageToDataUrl(file, 420) });
   };
   return (
-    <div className="border border-gray-100 rounded-lg p-2">
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <p className="flex-1 text-sm text-gray-700">{criterion.text}</p>
+    <div className="grid lg:grid-cols-[minmax(220px,1.35fr)_110px_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 items-start border border-gray-100 rounded-lg p-2">
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Aspecto</p>
+        <p className="text-sm text-gray-700 leading-snug">{criterion.text}</p>
+      </div>
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Puntaje</p>
         <select value={criterion.score} onChange={(e) => onChange(criterion.id, { score: Number(e.target.value) })} className="border rounded-md px-2 py-1.5 text-sm">
           {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
       </div>
-      <div className="grid sm:grid-cols-[1fr_150px] gap-2 mt-2">
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Observaciones</p>
         <input value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} placeholder="Observaciones" className="border rounded-md px-2 py-1.5 text-sm" />
-        <EvidenceActions onChange={handleEvidence} />
       </div>
-      {criterion.evidence && <img src={criterion.evidence} alt="" className="mt-2 h-24 w-full object-cover rounded-md border" />}
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Evidencia</p>
+        <EvidenceActions onChange={handleEvidence} />
+        {criterion.evidence && <img src={criterion.evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" />}
+      </div>
     </div>
   );
 }
@@ -1199,18 +1266,42 @@ function Planes({ planes, colaboradores, primary, onPlanes }) {
 function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitaciones }) {
   const blank = { nombre: "", tema: "", instructor: "", fecha: dateOnly(new Date()), duracion: "", asistentes: [], evaluacion: "", certificado: "No" };
   const [form, setForm] = useState(blank);
+  const [editingId, setEditingId] = useState("");
   const toggle = (id) => setForm({ ...form, asistentes: form.asistentes.includes(id) ? form.asistentes.filter((x) => x !== id) : [...form.asistentes, id] });
   const save = () => {
     if (!form.nombre.trim()) return;
     const asistentes = colaboradores.filter((c) => form.asistentes.includes(c.id)).map((c) => ({ id: c.id, nombre: c.nombre }));
-    onCapacitaciones([{ id: genId(), ...form, nombre: form.nombre.trim(), asistentes }, ...capacitaciones]);
+    if (editingId) {
+      onCapacitaciones(capacitaciones.map((t) => t.id === editingId ? { ...t, ...form, nombre: form.nombre.trim(), asistentes, updatedAt: todayISO() } : t));
+      setEditingId("");
+    } else {
+      onCapacitaciones([{ id: genId(), ...form, nombre: form.nombre.trim(), asistentes }, ...capacitaciones]);
+    }
+    setForm(blank);
+  };
+  const edit = (training) => {
+    setEditingId(training.id);
+    setForm({
+      nombre: training.nombre || "",
+      tema: training.tema || "",
+      instructor: training.instructor || "",
+      fecha: training.fecha || dateOnly(new Date()),
+      duracion: training.duracion || "",
+      asistentes: (training.asistentes || []).map((a) => a.id),
+      evaluacion: training.evaluacion || "",
+      certificado: training.certificado || "No",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const cancelEdit = () => {
+    setEditingId("");
     setForm(blank);
   };
 
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><GraduationCap size={15} /> Registrar capacitacion</h3>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><GraduationCap size={15} /> {editingId ? "Editar capacitacion" : "Registrar capacitacion"}</h3>
         <div className="grid sm:grid-cols-2 gap-2">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre de la capacitacion" className="border rounded-md px-3 py-2 text-sm" />
           <input value={form.tema} onChange={(e) => setForm({ ...form, tema: e.target.value })} placeholder="Tema" className="border rounded-md px-3 py-2 text-sm" />
@@ -1223,14 +1314,20 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
         <div className="flex flex-wrap gap-1.5">
           {colaboradores.filter(isActiveCollaborator).map((c) => <button key={c.id} type="button" onClick={() => toggle(c.id)} className="px-2.5 py-1 rounded-full text-xs font-semibold border" style={{ borderColor: form.asistentes.includes(c.id) ? primary : "#D8DCE1", background: form.asistentes.includes(c.id) ? primary : "#fff", color: form.asistentes.includes(c.id) ? "#fff" : "#5C6673" }}>{c.nombre}</button>)}
         </div>
-        <button onClick={save} className="w-full py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>Guardar capacitacion</button>
+        <div className="grid sm:grid-cols-[1fr_auto] gap-2">
+          <button onClick={save} className="w-full py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>{editingId ? "Actualizar capacitacion" : "Guardar capacitacion"}</button>
+          {editingId && <button onClick={cancelEdit} className="px-4 py-2 rounded-md border text-sm font-bold">Cancelar</button>}
+        </div>
       </div>
 
       {capacitaciones.map((t) => (
         <div key={t.id} className="bg-white rounded-xl p-3">
           <div className="flex items-center justify-between gap-2">
             <div><p className="font-bold text-sm">{t.nombre}</p><p className="text-xs text-gray-400">{t.fecha} · {t.tema} · {t.instructor || "Sin instructor"}</p></div>
-            <Badge color={t.certificado === "Si" ? "#1E7A46" : "#5C6673"} bg={t.certificado === "Si" ? "#E4F4EA" : "#EAECEF"}>{t.asistentes.length} asistentes</Badge>
+            <div className="flex items-center gap-2">
+              <Badge color={t.certificado === "Si" ? "#1E7A46" : "#5C6673"} bg={t.certificado === "Si" ? "#E4F4EA" : "#EAECEF"}>{t.asistentes.length} asistentes</Badge>
+              <button type="button" onClick={() => edit(t)} className="px-2.5 py-1 rounded-md border text-xs font-bold" style={{ color: primary, borderColor: primary }}>Editar</button>
+            </div>
           </div>
           <p className="text-xs text-gray-600 mt-2">{t.asistentes.map((a) => a.nombre).join(", ") || "Sin asistentes"}</p>
         </div>
