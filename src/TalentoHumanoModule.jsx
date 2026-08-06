@@ -103,7 +103,7 @@ async function shareDocument({ filename, html, title, text }) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
-  const scrollLock = useRef({ body: "", html: "", touch: "" });
+  const scrollLock = useRef({ body: "", html: "" });
   const [open, setOpen] = useState(false);
   const point = (event) => {
     const canvas = canvasRef.current;
@@ -114,16 +114,13 @@ function SignaturePad({ value, onChange, label }) {
     scrollLock.current = {
       body: document.body.style.overflow,
       html: document.documentElement.style.overscrollBehavior,
-      touch: document.body.style.touchAction,
     };
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
-    document.body.style.touchAction = "none";
   };
   const unlockScroll = () => {
     document.body.style.overflow = scrollLock.current.body;
     document.documentElement.style.overscrollBehavior = scrollLock.current.html;
-    document.body.style.touchAction = scrollLock.current.touch;
   };
   const start = (event) => {
     event.preventDefault();
@@ -201,8 +198,8 @@ function SignaturePad({ value, onChange, label }) {
         Abrir panel de firma
       </button>
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-3" onTouchMove={(event) => event.preventDefault()}>
-          <div className="bg-white rounded-2xl w-full max-w-3xl p-3 shadow-2xl">
+        <div className="fixed inset-0 z-[80] bg-black/70 overflow-y-auto overscroll-contain p-3">
+          <div className="bg-white rounded-2xl w-full max-w-3xl min-h-fit p-3 shadow-2xl mx-auto my-3">
             <div className="flex items-center justify-between gap-3 mb-2">
               <p className="font-bold text-sm text-gray-700">{label}</p>
               <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
@@ -219,7 +216,7 @@ function SignaturePad({ value, onChange, label }) {
               onPointerCancel={end}
               onPointerLeave={end}
             />
-            <div className="grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3">
+            <div className="sticky bottom-0 bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3 pt-3 border-t border-gray-100">
               <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
               <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
               <button type="button" onClick={accept} className="col-span-2 sm:col-auto py-3 px-4 rounded-md text-white text-sm font-black shadow-sm" style={{ background: "#1E7A46" }}>
@@ -1208,26 +1205,48 @@ function CriterionRow({ criterion, onChange }) {
     if (!file) return;
     onChange(criterion.id, { evidence: await resizeImageToDataUrl(file, 420) });
   };
+  const scoreColors = {
+    1: "#B5333D",
+    2: "#D97706",
+    3: "#64748B",
+    4: "#1D4ED8",
+    5: "#1E7A46",
+  };
   return (
-    <div className="grid lg:grid-cols-[minmax(220px,1.35fr)_110px_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 items-start border border-gray-100 rounded-lg p-2">
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Aspecto</p>
-        <p className="text-sm text-gray-700 leading-snug">{criterion.text}</p>
+    <div className="grid xl:grid-cols-[minmax(230px,1fr)_220px_minmax(260px,1.15fr)_170px] lg:grid-cols-[minmax(220px,1fr)_210px_minmax(240px,1.1fr)_160px] gap-2 items-stretch border border-gray-100 rounded-xl p-2 bg-white/70">
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 flex items-center justify-center min-h-20">
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Aspecto</p>
+          <p className="text-sm font-semibold text-gray-700 leading-snug">{criterion.text}</p>
+        </div>
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Puntaje</p>
-        <select value={criterion.score} onChange={(e) => onChange(criterion.id, { score: Number(e.target.value) })} className="border rounded-md px-2 py-1.5 text-sm">
-          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Puntaje</p>
+        <div className="grid grid-cols-5 gap-1.5">
+          {[1, 2, 3, 4, 5].map((n) => {
+            const active = Number(criterion.score) === n;
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => onChange(criterion.id, { score: n })}
+                className="min-h-12 rounded-md border text-sm font-black"
+                style={{ borderColor: active ? scoreColors[n] : "#D8DCE1", background: active ? scoreColors[n] : "#FFFFFF", color: active ? "#FFFFFF" : "#5C6673" }}
+              >
+                {n}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Observaciones</p>
-        <input value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} placeholder="Observaciones" className="border rounded-md px-2 py-1.5 text-sm" />
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Observaciones</p>
+        <textarea value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} rows={2} placeholder="Observaciones del aspecto evaluado" className="w-full border rounded-md px-2 py-1.5 text-sm min-h-20" />
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Evidencia</p>
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Evidencia</p>
         <EvidenceActions onChange={handleEvidence} />
-        {criterion.evidence && <img src={criterion.evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" />}
+        {criterion.evidence ? <img src={criterion.evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" /> : <div className="mt-2 h-16 rounded-md border border-dashed bg-white flex items-center justify-center text-[10px] text-gray-400">Sin evidencia</div>}
       </div>
     </div>
   );

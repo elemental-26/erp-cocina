@@ -32,10 +32,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.9.0";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "1.9.0", fecha: APP_VERSION_DATE, cambios: "Rediseño de inspecciones, EPP y evaluaciones con filas operativas tipo bosquejo, y KPIs propios de calidad en analisis." },
   { version: "1.8.0", fecha: APP_VERSION_DATE, cambios: "Panel de firma estabilizado para lapiz o dedo, con bloqueo de desplazamiento mientras se firma." },
   { version: "1.7.0", fecha: APP_VERSION_DATE, cambios: "Inicio en cuadricula de modulos, cabecera interna compacta por modulo y navegacion superior para Calidad." },
   { version: "1.6.0", fecha: "2026-08-05", cambios: "Firmas tactiles extendidas a documentos generados, evidencias desde camara/galeria y opcion de compartir por WhatsApp/Web Share." },
@@ -250,7 +251,8 @@ function StatusPicker({ value, onChange, compact }) {
             key={s.value}
             type="button"
             onClick={() => onChange(s.value)}
-            className="rounded-md border py-2 text-[11px] font-semibold tracking-tight transition-all leading-tight"
+            title={s.label}
+            className={`${compact ? "min-h-12 px-1" : "py-2"} rounded-md border text-[11px] font-semibold tracking-tight transition-all leading-tight flex items-center justify-center`}
             style={{
               borderColor: active ? s.border : "#D8DCE1",
               background: active ? s.color : "#FFFFFF",
@@ -578,7 +580,7 @@ export default function App() {
           />
         )}
         {activeModule === "calidad" && isAdmin && tab === "analisis" && (
-          <AnalisisView inspecciones={inspecciones} hallazgos={hallazgos} primary={primary} accent={accent} />
+          <AnalisisView inspecciones={inspecciones} hallazgos={hallazgos} desviaciones={desviaciones} primary={primary} accent={accent} />
         )}
         {activeModule === "calidad" && isAdmin && tab === "hallazgos" && (
           <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} />
@@ -690,23 +692,25 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
 
 function ChecklistItemRow({ item, status, observation, evidence, onStatus, onObservation, onEvidence, primary }) {
   return (
-    <div className="grid lg:grid-cols-[minmax(220px,1.35fr)_minmax(150px,0.85fr)_minmax(220px,1fr)_minmax(150px,0.8fr)] gap-2 items-start border-b border-gray-100 py-2 last:border-0">
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Aspecto</p>
-        <p className="text-sm text-gray-700 leading-snug">{item.texto}</p>
+    <div className="grid xl:grid-cols-[minmax(230px,1fr)_220px_minmax(260px,1.15fr)_170px] lg:grid-cols-[minmax(220px,1fr)_210px_minmax(240px,1.1fr)_160px] gap-2 items-stretch rounded-xl border border-gray-100 bg-white/70 p-2">
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 flex items-center justify-center min-h-20">
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Item</p>
+          <p className="text-sm font-semibold text-gray-700 leading-snug">{item.texto}</p>
+        </div>
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Puntaje</p>
-        <StatusPicker value={status} onChange={onStatus} />
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Cumplimiento</p>
+        <StatusPicker value={status} onChange={onStatus} compact />
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Observaciones</p>
-        <textarea value={observation || ""} onChange={(event) => onObservation(event.target.value)} rows={1} placeholder="Observaciones" className="w-full border rounded-md px-2 py-1.5 text-sm" />
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Observaciones</p>
+        <textarea value={observation || ""} onChange={(event) => onObservation(event.target.value)} rows={2} placeholder="Observaciones del punto verificado" className="w-full border rounded-md px-2 py-1.5 text-sm min-h-20" />
       </div>
-      <div>
-        <p className="text-[11px] font-bold text-gray-400 uppercase lg:hidden">Evidencia</p>
+      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
+        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Evidencia</p>
         <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} />
-        {evidence && <img src={evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" />}
+        {evidence ? <img src={evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" /> : <div className="mt-2 h-16 rounded-md border border-dashed bg-white flex items-center justify-center text-[10px] text-gray-400">Sin evidencia</div>}
       </div>
     </div>
   );
@@ -1141,7 +1145,7 @@ function nextDeviationCode(desviaciones) {
 function SignaturePad({ value, onChange, label }) {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
-  const scrollLock = useRef({ body: "", html: "", touch: "" });
+  const scrollLock = useRef({ body: "", html: "" });
   const [open, setOpen] = useState(false);
 
   const getPoint = (event) => {
@@ -1157,17 +1161,14 @@ function SignaturePad({ value, onChange, label }) {
     scrollLock.current = {
       body: document.body.style.overflow,
       html: document.documentElement.style.overscrollBehavior,
-      touch: document.body.style.touchAction,
     };
     document.body.style.overflow = "hidden";
     document.documentElement.style.overscrollBehavior = "none";
-    document.body.style.touchAction = "none";
   };
 
   const unlockScroll = () => {
     document.body.style.overflow = scrollLock.current.body;
     document.documentElement.style.overscrollBehavior = scrollLock.current.html;
-    document.body.style.touchAction = scrollLock.current.touch;
   };
 
   const start = (event) => {
@@ -1250,8 +1251,8 @@ function SignaturePad({ value, onChange, label }) {
         Abrir panel de firma
       </button>
       {open && (
-        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-3" onTouchMove={(event) => event.preventDefault()}>
-          <div className="bg-white rounded-2xl w-full max-w-3xl p-3 shadow-2xl">
+        <div className="fixed inset-0 z-[80] bg-black/70 overflow-y-auto overscroll-contain p-3">
+          <div className="bg-white rounded-2xl w-full max-w-3xl min-h-fit p-3 shadow-2xl mx-auto my-3">
             <div className="flex items-center justify-between gap-3 mb-2">
               <p className="font-bold text-sm text-gray-700">{label}</p>
               <button type="button" onClick={() => setOpen(false)} className="p-2 rounded-full bg-gray-100"><X size={18} /></button>
@@ -1268,7 +1269,7 @@ function SignaturePad({ value, onChange, label }) {
               onPointerCancel={end}
               onPointerLeave={end}
             />
-            <div className="grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3">
+            <div className="sticky bottom-0 bg-white grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3 pt-3 border-t border-gray-100">
               <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
               <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
               <button type="button" onClick={accept} className="col-span-2 sm:col-auto py-3 px-4 rounded-md text-white text-sm font-black shadow-sm" style={{ background: "#1E7A46" }}>
@@ -2080,7 +2081,24 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
 /* ---------------------------------- análisis ---------------------------------- */
 
-function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
+function QualityKpiCard({ label, value, detail, tone = "neutral" }) {
+  const tones = {
+    good: { color: "#1E7A46", bg: "#E4F4EA" },
+    warn: { color: "#B4750E", bg: "#FCF1DC" },
+    bad: { color: "#B5333D", bg: "#FBE7E8" },
+    neutral: { color: "#1F2B3A", bg: "#F1F3F4" },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <div className="rounded-xl p-3 text-center border border-gray-100" style={{ background: t.bg }}>
+      <p className="text-[10px] text-gray-500 uppercase font-black leading-tight">{label}</p>
+      <p className="text-2xl font-black leading-none mt-2" style={{ color: t.color }}>{value}</p>
+      {detail && <p className="text-[11px] text-gray-500 mt-2 leading-tight">{detail}</p>}
+    </div>
+  );
+}
+
+function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, accent }) {
   const promedioGeneral = useMemo(() => {
     if (!inspecciones.length) return 0;
     return Math.round(inspecciones.reduce((a, i) => a + i.cumplimientoPct, 0) / inspecciones.length);
@@ -2104,6 +2122,29 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
 
   const abiertos = hallazgos.filter((h) => h.estado !== "cerrado").length;
   const cerrados = hallazgos.filter((h) => h.estado === "cerrado").length;
+  const totalHallazgos = abiertos + cerrados;
+  const cierrePct = totalHallazgos ? Math.round((cerrados / totalHallazgos) * 100) : 100;
+  const inspeccionesArea = inspecciones.filter((i) => i.tipo !== "epp");
+  const inspeccionesEpp = inspecciones.filter((i) => i.tipo === "epp");
+  const promedioEpp = inspeccionesEpp.length ? Math.round(inspeccionesEpp.reduce((sum, i) => sum + (i.cumplimientoPct || 0), 0) / inspeccionesEpp.length) : 0;
+  const conEvidencia = inspecciones.filter((i) => {
+    const general = (i.evidencias || []).length > 0;
+    const itemEvidence = (i.items || []).some((item) => item.evidencia);
+    const eppEvidence = (i.epp || []).some((group) => (group.items || []).some((item) => item.evidencia));
+    return general || itemEvidence || eppEvidence;
+  }).length;
+  const evidenciaPct = inspecciones.length ? Math.round((conEvidencia / inspecciones.length) * 100) : 0;
+  const areaCriticas = porArea.filter((a) => a.pct < 75).length;
+  const hallazgosPorInspeccion = inspecciones.length ? (hallazgos.length / inspecciones.length).toFixed(1) : "0.0";
+  const recurrencias = useMemo(() => {
+    const map = {};
+    hallazgos.forEach((h) => {
+      const key = `${h.responsable || "sin responsable"}|${h.descripcion || ""}`.toLowerCase();
+      map[key] = (map[key] || 0) + 1;
+    });
+    return Object.values(map).filter((total) => total >= 2).length;
+  }, [hallazgos]);
+  const desviacionesAbiertas = desviaciones.filter((d) => d.estado !== "Cerrada").length;
 
   return (
     <div className="space-y-3">
@@ -2124,6 +2165,20 @@ function AnalisisView({ inspecciones, hallazgos, primary, accent }) {
             <p className="text-xl font-black" style={{ color: "#1E7A46" }}>{cerrados}</p>
             <p className="text-[10px] text-gray-400 uppercase font-bold">Hallazgos cerrados</p>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-3">
+        <h3 className="font-bold text-sm mb-3" style={{ fontFamily: "Oswald, sans-serif" }}>KPI de calidad</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <QualityKpiCard label="Tasa de cierre" value={`${cierrePct}%`} detail={`${cerrados}/${totalHallazgos || 0} hallazgos`} tone={cierrePct >= 85 ? "good" : cierrePct >= 60 ? "warn" : "bad"} />
+          <QualityKpiCard label="Hallazgos por inspección" value={hallazgosPorInspeccion} detail="Promedio operativo" tone={Number(hallazgosPorInspeccion) <= 1 ? "good" : Number(hallazgosPorInspeccion) <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Evidencia documentada" value={`${evidenciaPct}%`} detail={`${conEvidencia}/${inspecciones.length || 0} registros`} tone={evidenciaPct >= 80 ? "good" : evidenciaPct >= 50 ? "warn" : "bad"} />
+          <QualityKpiCard label="Reincidencias" value={recurrencias} detail="Mismo responsable e incumplimiento" tone={recurrencias === 0 ? "good" : recurrencias <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Cumplimiento EPP" value={inspeccionesEpp.length ? `${promedioEpp}%` : "N/A"} detail={`${inspeccionesEpp.length} verificación(es)`} tone={!inspeccionesEpp.length || promedioEpp >= 90 ? "good" : promedioEpp >= 75 ? "warn" : "bad"} />
+          <QualityKpiCard label="Inspecciones de área" value={inspeccionesArea.length} detail="Registros operativos" tone="neutral" />
+          <QualityKpiCard label="Áreas críticas" value={areaCriticas} detail="Promedio menor a 75%" tone={areaCriticas === 0 ? "good" : areaCriticas <= 2 ? "warn" : "bad"} />
+          <QualityKpiCard label="Desviaciones abiertas" value={desviacionesAbiertas} detail={`${desviaciones.length} desviación(es)`} tone={desviacionesAbiertas === 0 ? "good" : desviacionesAbiertas <= 2 ? "warn" : "bad"} />
         </div>
       </div>
 
