@@ -219,10 +219,12 @@ function SignaturePad({ value, onChange, label }) {
               onPointerCancel={end}
               onPointerLeave={end}
             />
-            <div className="grid grid-cols-3 gap-2 mt-3">
+            <div className="grid grid-cols-2 sm:grid-cols-[auto_auto_1fr] gap-2 mt-3">
               <button type="button" onClick={clear} className="py-2 rounded-md border text-sm font-bold text-red-600">Limpiar</button>
               <button type="button" onClick={() => setOpen(false)} className="py-2 rounded-md border text-sm font-bold">Cancelar</button>
-              <button type="button" onClick={accept} className="py-2 rounded-md bg-gray-900 text-white text-sm font-bold">Aceptar firma</button>
+              <button type="button" onClick={accept} className="col-span-2 sm:col-auto py-3 px-4 rounded-md text-white text-sm font-black shadow-sm" style={{ background: "#1E7A46" }}>
+                Aceptar firma y continuar
+              </button>
             </div>
           </div>
         </div>
