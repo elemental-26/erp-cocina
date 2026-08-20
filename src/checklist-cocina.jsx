@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, LineChart, Line, PieChart, Pie, Cell, Legend
+  Tooltip, LineChart, Line
 } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -43,10 +43,11 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.5.1";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "2.5.1", fecha: APP_VERSION_DATE, cambios: "Correccion de actualizacion PWA en tablet, separacion real de Pedidos y Fichas, y graficos de analisis robustos para vista instalada." },
   { version: "2.5.0", fecha: APP_VERSION_DATE, cambios: "Reorganizacion profesional: logos por modulo, evidencias desplegables, fichas activas, insumos validados, merma integrada y origen ERP en documentos." },
   { version: "2.4.0", fecha: APP_VERSION_DATE, cambios: "Modulo de estandarizacion de cocina desde Excel: fichas tecnicas, insumos sin duplicados, preparaciones, merma, fotografia, descarga y WhatsApp." },
   { version: "2.3.0", fecha: APP_VERSION_DATE, cambios: "Edicion inline de colaboradores, fotografia compacta y guardado reforzado para conservar personal y fotos al refrescar la PWA." },
@@ -986,6 +987,7 @@ export default function App() {
             config={config}
             currentUser={currentUser}
             initialTab="requisiciones"
+            singleTab
           />
         )}
         {activeModule === "admin" && canOpenAdmin && (
@@ -2621,6 +2623,29 @@ function QualityKpiCard({ label, value, detail, tone = "neutral", progress = 0 }
   );
 }
 
+function QualityDonutCard({ title, value, total = 100, label, color, secondaryLabel, secondaryValue }) {
+  const numericValue = Math.max(0, Number(value) || 0);
+  const numericTotal = Math.max(1, Number(total) || 100);
+  const pctValue = Math.round(Math.min(100, (numericValue / numericTotal) * 100));
+  return (
+    <div className="chart-card quality-donut-card">
+      <p className="chart-card-title">{title}</p>
+      <div
+        className="quality-donut"
+        style={{ "--donut-color": color, "--donut-angle": `${pctValue * 3.6}deg` }}
+      >
+        <div>
+          <strong>{label || `${pctValue}%`}</strong>
+          {secondaryLabel && <span>{secondaryLabel}</span>}
+        </div>
+      </div>
+      <div className="quality-donut-footer">
+        <span>{secondaryValue || `${numericValue}/${numericTotal}`}</span>
+      </div>
+    </div>
+  );
+}
+
 function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, accent }) {
   const [periodo, setPeriodo] = useState("global");
   const periodLabel = { dia: "Hoy", mes: "Mes", ano: "Año", global: "Global" };
@@ -2696,18 +2721,6 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
     { nombre: "Areas criticas", valor: areaCriticas },
     { nombre: "Desviaciones abiertas", valor: desviacionesAbiertas },
   ];
-  const compliancePie = [
-    { name: "Cumplimiento", value: promedioGeneral, color: primary },
-    { name: "Brecha", value: Math.max(0, 100 - promedioGeneral), color: "#E5E7EB" },
-  ];
-  const findingsPie = [
-    { name: "Cerrados", value: cerrados, color: "#1E7A46" },
-    { name: "Abiertos", value: abiertos, color: "#B5333D" },
-  ].filter((item) => item.value > 0);
-  const evidencePie = [
-    { name: "Con evidencia", value: conEvidencia, color: accent },
-    { name: "Sin evidencia", value: Math.max(0, inspecciones.length - conEvidencia), color: "#CBD5E1" },
-  ].filter((item) => item.value > 0);
 
   return (
     <div className="analysis-shell">
@@ -2751,42 +2764,9 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
         </div>
 
         <div className="analysis-chart-grid" style={{ marginTop: 12 }}>
-          <div className="chart-card" style={{ textAlign: "center" }}>
-            <p className="chart-card-title">Cumplimiento</p>
-            <ResponsiveContainer width="100%" height={190}>
-              <PieChart>
-                <Pie data={compliancePie} dataKey="value" nameKey="name" innerRadius={48} outerRadius={70} startAngle={90} endAngle={-270}>
-                  {compliancePie.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                </Pie>
-                <Tooltip formatter={(value) => [`${value}%`, ""]} />
-              </PieChart>
-            </ResponsiveContainer>
-            <p className="text-3xl font-black -mt-20 mb-12 pointer-events-none" style={{ color: primary }}>{promedioGeneral}%</p>
-          </div>
-          <div className="chart-card">
-            <p className="chart-card-title">Hallazgos</p>
-            <ResponsiveContainer width="100%" height={190}>
-              <PieChart>
-                <Pie data={findingsPie.length ? findingsPie : [{ name: "Sin hallazgos", value: 1, color: "#E5E7EB" }]} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68}>
-                  {(findingsPie.length ? findingsPie : [{ name: "Sin hallazgos", value: 1, color: "#E5E7EB" }]).map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={28} iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="chart-card">
-            <p className="chart-card-title">Evidencia</p>
-            <ResponsiveContainer width="100%" height={190}>
-              <PieChart>
-                <Pie data={evidencePie.length ? evidencePie : [{ name: "Sin registros", value: 1, color: "#E5E7EB" }]} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68}>
-                  {(evidencePie.length ? evidencePie : [{ name: "Sin registros", value: 1, color: "#E5E7EB" }]).map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={28} iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+          <QualityDonutCard title="Cumplimiento" value={promedioGeneral} total={100} label={`${promedioGeneral}%`} secondaryLabel="Promedio" color={primary} secondaryValue={`${inspecciones.length} inspección(es)`} />
+          <QualityDonutCard title="Hallazgos cerrados" value={cerrados} total={Math.max(1, totalHallazgos)} label={`${cierrePct}%`} secondaryLabel="Cierre" color="#1E7A46" secondaryValue={`${cerrados} cerrados / ${abiertos} abiertos`} />
+          <QualityDonutCard title="Evidencia" value={conEvidencia} total={Math.max(1, inspecciones.length)} label={`${evidenciaPct}%`} secondaryLabel="Documentada" color={accent} secondaryValue={`${conEvidencia}/${inspecciones.length || 0} registros`} />
         </div>
 
         <div className="analysis-wide-grid" style={{ marginTop: 12 }}>

@@ -6,10 +6,7 @@ import { registerSW } from 'virtual:pwa-register'
 
 const updateSW = registerSW({
   onNeedRefresh() {
-    const shouldUpdate = window.confirm(
-      "Hay una nueva version del ERP disponible. ¿Quieres actualizar ahora?"
-    );
-    if (shouldUpdate) updateSW(true);
+    updateSW(true);
   },
 });
 

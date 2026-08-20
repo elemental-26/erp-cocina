@@ -7,7 +7,12 @@ export default defineConfig({
     react(),
 
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true
+      },
 
       includeAssets: [
         'favicon.ico',

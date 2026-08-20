@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   BookOpen, Camera, Download, FileText, ImagePlus, ListChecks,
-  PackageCheck, Pencil, Plus, Save, Search, Send, Trash2, X
+  Pencil, Plus, Save, Search, Send, Trash2, X
 } from "lucide-react";
 
 const tabs = [
   { id: "fichas", label: "Fichas", icon: FileText },
-  { id: "requisiciones", label: "Pedidos", icon: PackageCheck },
   { id: "insumos", label: "Insumos", icon: ListChecks },
   { id: "preparaciones", label: "Preparaciones", icon: BookOpen },
 ];
@@ -583,17 +582,20 @@ export default function EstandarizacionCocinaView({
   config,
   currentUser,
   initialTab = "fichas",
+  singleTab = false,
 }) {
   const [tab, setTab] = useState(initialTab);
+  const visibleTabs = singleTab ? [] : tabs;
 
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
 
   return (
-    <div className="space-y-3">
+    <div className={singleTab ? "space-y-3 std-requests-standalone" : "space-y-3"}>
+      {!singleTab && (
       <div className="bg-white rounded-xl p-2 flex gap-1 overflow-x-auto">
-        {tabs.map((item) => {
+        {visibleTabs.map((item) => {
           const Icon = item.icon;
           const active = tab === item.id;
           return (
@@ -608,6 +610,7 @@ export default function EstandarizacionCocinaView({
           );
         })}
       </div>
+      )}
 
       {tab === "fichas" && (
         <FichasView
@@ -621,7 +624,7 @@ export default function EstandarizacionCocinaView({
         />
       )}
       {tab === "insumos" && <InsumosView familias={familias} insumos={insumos} mermas={mermas} onFamilias={onFamilias} onInsumos={onInsumos} onMermas={onMermas} primary={primary} accent={accent} />}
-      {tab === "requisiciones" && (
+      {(tab === "requisiciones" || singleTab) && (
         <RequisicionesView
           insumos={insumos}
           requisiciones={requisiciones || []}
