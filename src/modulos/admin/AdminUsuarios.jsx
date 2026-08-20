@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, UserPlus } from "lucide-react";
 
 import Badge from "../../components/common/Badge";
 import UsuarioEditForm from "./UsuarioEditForm";
@@ -48,7 +48,7 @@ export default function AdminUsuarios({
   return (
     <div className="space-y-2">
       <div className="bg-white rounded-xl p-4 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "inherit" }}>
           <UserPlus size={15} /> Agregar usuario ({usuarios.length}/{MAX_USUARIOS})
         </h3>
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" className="w-full border rounded-md px-4 py-2 text-sm" />

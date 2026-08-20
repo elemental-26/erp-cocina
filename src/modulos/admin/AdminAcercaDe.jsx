@@ -9,7 +9,7 @@ export default function AdminAcercaDe({ primary }) {
     <div className="bg-white rounded-xl p-4">
       <h3
         className="font-bold text-base"
-        style={{ fontFamily: "Oswald, sans-serif" }}
+        style={{ fontFamily: "inherit" }}
       >
         Acerca del ERP
       </h3>

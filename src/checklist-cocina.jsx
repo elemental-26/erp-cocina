@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import TalentoHumanoView from "./TalentoHumanoModule";
+import EstandarizacionCocinaView from "./EstandarizacionCocinaModule";
+import { DEFAULT_STD_DATA } from "./data/estandarizacionCocinaData";
 import {
-  ClipboardCheck, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
+  ClipboardCheck, AlertTriangle,
   Settings, Users, BarChart3, ListChecks, LogOut, Plus, Trash2, Pencil,
   Lock, ChevronRight, Download, ShieldCheck, AlertCircle, UserPlus,
   Palette, ImagePlus, X, Save, Building2, Check, Info, KeyRound,
-  BriefcaseBusiness, FileText
+  BriefcaseBusiness, FileText, ChefHat, Home
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, LineChart, Line
+  Tooltip, LineChart, Line, PieChart, Pie, Cell, Legend
 } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -32,10 +34,14 @@ import * as XLSX from "xlsx";
    patrón: nueva colección + nueva vista + nueva pestaña en BottomNav/Admin.
    ========================================================================= */
 
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.5.0";
 const APP_VERSION_DATE = "2026-08-05";
 const CREADO_POR = "Faber Solano";
 const CHANGELOG = [
+  { version: "2.5.0", fecha: APP_VERSION_DATE, cambios: "Reorganizacion profesional: logos por modulo, evidencias desplegables, fichas activas, insumos validados, merma integrada y origen ERP en documentos." },
+  { version: "2.4.0", fecha: APP_VERSION_DATE, cambios: "Modulo de estandarizacion de cocina desde Excel: fichas tecnicas, insumos sin duplicados, preparaciones, merma, fotografia, descarga y WhatsApp." },
+  { version: "2.3.0", fecha: APP_VERSION_DATE, cambios: "Edicion inline de colaboradores, fotografia compacta y guardado reforzado para conservar personal y fotos al refrescar la PWA." },
+  { version: "2.2.0", fecha: APP_VERSION_DATE, cambios: "Historial protegido contra sobrescritura en tablet, agrupacion por fecha, analisis por periodos con graficas circulares y hasta 3 fotos por item." },
   { version: "2.1.0", fecha: APP_VERSION_DATE, cambios: "Firma con boton fijo visible, evidencia plegable, inspecciones sin fila de encabezados, KPIs en graficas y talento humano con datos/foto en dos zonas." },
   { version: "2.0.0", fecha: APP_VERSION_DATE, cambios: "Inspecciones y EPP compactas en filas horizontales con observaciones desplegables, y KPIs de calidad convertidos en graficos de lectura rapida." },
   { version: "1.9.0", fecha: APP_VERSION_DATE, cambios: "Rediseño de inspecciones, EPP y evaluaciones con filas operativas tipo bosquejo, y KPIs propios de calidad en analisis." },
@@ -59,6 +65,7 @@ const STATUS = [
   { value: "no_aplica", label: "No aplica", short: "N/A", color: "#5C6673", bg: "#EAECEF", border: "#5C6673" },
 ];
 const statusInfo = (v) => STATUS.find((s) => s.value === v) || STATUS[3];
+const MAX_EVIDENCE_PER_ITEM = 3;
 
 const DEVIATION_TYPES = [
   "Calidad del producto",
@@ -88,6 +95,53 @@ function fmtFecha(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) +
     " · " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+}
+function dayKey(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "sin-fecha";
+  return d.toISOString().slice(0, 10);
+}
+function fmtSoloFecha(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Sin fecha";
+  return d.toLocaleDateString("es-CO", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+}
+function monthKey(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "sin-mes";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function yearKey(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "sin-ano" : String(d.getFullYear());
+}
+function normalizeEvidenceList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).slice(0, MAX_EVIDENCE_PER_ITEM);
+  return value ? [value].slice(0, MAX_EVIDENCE_PER_ITEM) : [];
+}
+function mergeById(newItems, currentItems = []) {
+  const map = new Map();
+  [...newItems, ...currentItems].forEach((item) => {
+    if (item?.id && !map.has(item.id)) map.set(item.id, item);
+  });
+  return Array.from(map.values()).sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+}
+function mergeCollaboratorsById(incoming = [], currentItems = []) {
+  const map = new Map();
+  currentItems.forEach((item) => {
+    if (item?.id) map.set(item.id, item);
+  });
+  incoming.forEach((item) => {
+    if (!item?.id) return;
+    const current = map.get(item.id) || {};
+    map.set(item.id, {
+      ...current,
+      ...item,
+      foto: item.foto || current.foto || null,
+      areas: item.areas || (item.area ? [item.area] : current.areas || []),
+    });
+  });
+  return Array.from(map.values());
 }
 
 function resizeImageToDataUrl(file, maxDim = 320) {
@@ -245,7 +299,7 @@ async function saveKey(key, value) {
 
 function StatusPicker({ value, onChange, compact }) {
   return (
-    <div className={`grid grid-cols-4 gap-1.5 ${compact ? "" : "mt-2"}`}>
+    <div className={`status-picker ${compact ? "status-picker-compact" : ""}`}>
       {STATUS.map((s) => {
         const active = value === s.value;
         return (
@@ -254,7 +308,7 @@ function StatusPicker({ value, onChange, compact }) {
             type="button"
             onClick={() => onChange(s.value)}
             title={s.label}
-            className={`${compact ? "min-h-12 px-1" : "py-2"} rounded-md border text-[11px] font-semibold tracking-tight transition-all leading-tight flex items-center justify-center`}
+            className={`status-option ${active ? "status-option-active" : ""}`}
             style={{
               borderColor: active ? s.border : "#D8DCE1",
               background: active ? s.color : "#FFFFFF",
@@ -280,7 +334,7 @@ function Badge({ children, color, bg }) {
   );
 }
 
-function StampGauge({ pct, size = 128 }) {
+function _StampGauge({ pct, size = 128 }) {
   const clamped = Math.max(0, Math.min(100, pct));
   const angle = (clamped / 100) * 360;
   const color = clamped >= 90 ? "#1E7A46" : clamped >= 70 ? "#B4750E" : "#B5333D";
@@ -308,7 +362,7 @@ function Modal({ title, onClose, children, wide }) {
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className={`bg-white w-full ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"} sm:rounded-xl rounded-t-2xl max-h-[90vh] flex flex-col`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h3 className="font-bold text-[15px]" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
+          <h3 className="font-bold text-[15px]" style={{ fontFamily: "inherit" }}>{title}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={20} /></button>
         </div>
         <div className="overflow-y-auto px-4 py-4">{children}</div>
@@ -329,7 +383,7 @@ function PasswordModal({ usuario, onSuccess, onClose }) {
           autoFocus
           value={pw}
           onChange={(e) => { setPw(e.target.value); setErr(false); }}
-          onKeyDown={(e) => { if (e.key === "Enter") { pw === usuario.password ? onSuccess() : setErr(true); } }}
+          onKeyDown={(e) => { if (e.key === "Enter") { if (pw === usuario.password) onSuccess(); else setErr(true); } }}
           className="w-full border-2 rounded-xl px-4 py-4 text-center text-2xl tracking-widest"
           style={{ borderColor: err ? "#B5333D" : "#D8DCE1" }}
           placeholder="Contraseña"
@@ -354,7 +408,7 @@ export default function App() {
   const [config, setConfig] = useState(null);
    const [areas, setAreas] = useState([]);
   const [eppItems, setEppItems] = useState([]);
-  const [personas, setPersonas] = useState([]);
+  const [_personas, setPersonas] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [inspecciones, setInspecciones] = useState([]);
   const [hallazgos, setHallazgos] = useState([]);
@@ -364,6 +418,11 @@ export default function App() {
   const [hrPlanes, setHrPlanes] = useState([]);
   const [hrCapacitaciones, setHrCapacitaciones] = useState([]);
   const [hrCertificaciones, setHrCertificaciones] = useState([]);
+  const [stdFamilias, setStdFamilias] = useState([]);
+  const [stdInsumos, setStdInsumos] = useState([]);
+  const [stdRecetas, setStdRecetas] = useState([]);
+  const [stdPreparaciones, setStdPreparaciones] = useState([]);
+  const [stdMermas, setStdMermas] = useState([]);
 
   const [currentUser, setCurrentUser] = useState(null);
   const [activeModule, setActiveModule] = useState("menu");
@@ -372,7 +431,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [c, a, e, p, u, i, h, d, hc, he, hp, ht, hcert, session] = await Promise.all([
+      const [c, a, e, p, u, i, h, d, hc, he, hp, ht, hcert, sf, si, sr, sp, sm, session] = await Promise.all([
         loadKey("qc_config", null),
         loadKey("qc_areas", null),
         loadKey("qc_epp", null),
@@ -386,6 +445,11 @@ export default function App() {
         loadKey("hr_planes_mejora", []),
         loadKey("hr_capacitaciones", []),
         loadKey("hr_certificaciones", []),
+        loadKey("std_familias", null),
+        loadKey("std_insumos", null),
+        loadKey("std_recetas", null),
+        loadKey("std_preparaciones", null),
+        loadKey("std_mermas", []),
         loadKey("erp_session_user", null),
       ]);
       let finalAreas = a;
@@ -421,6 +485,20 @@ export default function App() {
       setHrPlanes(hp || []);
       setHrCapacitaciones(ht || []);
       setHrCertificaciones(hcert || []);
+      const finalStdFamilias = sf === null ? DEFAULT_STD_DATA.familias : sf;
+      const finalStdInsumos = si === null ? DEFAULT_STD_DATA.insumos : si;
+      const finalStdRecetas = sr === null ? DEFAULT_STD_DATA.recetas : sr;
+      const finalStdPreparaciones = sp === null ? DEFAULT_STD_DATA.preparaciones : sp;
+      const finalStdMermas = sm || [];
+      setStdFamilias(finalStdFamilias);
+      setStdInsumos(finalStdInsumos);
+      setStdRecetas(finalStdRecetas);
+      setStdPreparaciones(finalStdPreparaciones);
+      setStdMermas(finalStdMermas);
+      if (sf === null) saveKey("std_familias", finalStdFamilias);
+      if (si === null) saveKey("std_insumos", finalStdInsumos);
+      if (sr === null) saveKey("std_recetas", finalStdRecetas);
+      if (sp === null) saveKey("std_preparaciones", finalStdPreparaciones);
       if (session && (u || []).some((user) => user.id === session.id)) setCurrentUser(session);
       setLoading(false);
     })();
@@ -435,11 +513,33 @@ export default function App() {
     inspecciones: async (v) => { setInspecciones(v); await saveKey("qc_inspecciones", v); },
     hallazgos: async (v) => { setHallazgos(v); await saveKey("qc_hallazgos", v); },
     desviaciones: async (v) => { setDesviaciones(v); await saveKey("qc_desviaciones", v); },
-    hrColaboradores: async (v) => { setHrColaboradores(v); setPersonas(v); await saveKey("hr_colaboradores", v); await saveKey("qc_personas", v); },
+    hrColaboradores: async (v) => {
+      const stored = await loadKey("hr_colaboradores", hrColaboradores);
+      const merged = mergeCollaboratorsById(v, stored);
+      setHrColaboradores(merged);
+      setPersonas(merged);
+      await saveKey("hr_colaboradores", merged);
+      await saveKey("qc_personas", merged);
+    },
     hrEvaluaciones: async (v) => { setHrEvaluaciones(v); await saveKey("hr_evaluaciones", v); },
     hrPlanes: async (v) => { setHrPlanes(v); await saveKey("hr_planes_mejora", v); },
     hrCapacitaciones: async (v) => { setHrCapacitaciones(v); await saveKey("hr_capacitaciones", v); },
     hrCertificaciones: async (v) => { setHrCertificaciones(v); await saveKey("hr_certificaciones", v); },
+    stdFamilias: async (v) => { setStdFamilias(v); await saveKey("std_familias", v); },
+    stdInsumos: async (v) => { setStdInsumos(v); await saveKey("std_insumos", v); },
+    stdRecetas: async (v) => { setStdRecetas(v); await saveKey("std_recetas", v); },
+    stdPreparaciones: async (v) => { setStdPreparaciones(v); await saveKey("std_preparaciones", v); },
+    stdMermas: async (v) => { setStdMermas(v); await saveKey("std_mermas", v); },
+  };
+  const appendInspectionRecord = async (insp, nuevosHallazgos = []) => {
+    const storedInspecciones = await loadKey("qc_inspecciones", inspecciones);
+    const nextInspecciones = mergeById([insp], storedInspecciones);
+    await persist.inspecciones(nextInspecciones);
+
+    if (nuevosHallazgos.length) {
+      const storedHallazgos = await loadKey("qc_hallazgos", hallazgos);
+      await persist.hallazgos(mergeById(nuevosHallazgos, storedHallazgos));
+    }
   };
 
   const primary = config?.colorPrimario || "#1F2B3A";
@@ -464,8 +564,13 @@ export default function App() {
       hrPlanes,
       hrCapacitaciones,
       hrCertificaciones,
+      stdFamilias,
+      stdInsumos,
+      stdRecetas,
+      stdPreparaciones,
+      stdMermas,
     });
-  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones]);
+  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas]);
 
   if (loading) {
     return (
@@ -519,16 +624,24 @@ export default function App() {
         fontFamily: config?.fontFamily || "Inter, sans-serif",
         fontSize: `${config?.fontScale || 125}%`,
         "--erp-font-factor": (config?.fontScale || 125) / 100,
+        "--erp-primary": primary,
+        "--erp-accent": accent,
+        "--erp-surface": config?.cellBackground || "#FFFFFF",
+        "--erp-page": config?.appBackground || "#F1F3F4",
+        "--erp-ink": config?.textColor || "#243040",
+        "--erp-muted": "#7C8795",
+        "--erp-border": "#D8DCE1",
         "--erp-cell-bg": config?.cellBackground || "#FFFFFF",
         "--erp-field-border": `${config?.fieldBorderWidth || 1}px`,
         "--erp-field-padding-y": `${config?.fieldPaddingY || 9}px`,
+        color: config?.textColor || "#243040",
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
       `}</style>
       {config?.logo && config?.watermarkLogo !== false && (
-        <img src={config.logo} alt="" className="pointer-events-none fixed right-4 bottom-20 z-0 h-40 w-40 object-contain opacity-[0.035]" />
+        <img src={config.logo} alt="" className="erp-watermark" />
       )}
 
       <ErpHeader config={config} primary={primary} currentUser={currentUser} isAdmin={isAdmin}
@@ -539,6 +652,7 @@ export default function App() {
       <main className="flex-1 overflow-y-auto pb-6 w-full max-w-6xl mx-auto px-3 pt-3 relative z-10">
         {activeModule === "menu" && (
           <ErpModuleLauncher
+            config={config}
             isAdmin={isAdmin}
             primary={primary}
             accent={accent}
@@ -554,11 +668,8 @@ export default function App() {
         {activeModule === "calidad" && tab === "inspeccion" && (
           <AreaInspectionView
             areas={areas} personas={activeColaboradores}
-            currentUser={currentUser} accent={accent} primary={primary}
-            onSave={async (insp, nuevosHallazgos) => {
-              await persist.inspecciones([insp, ...inspecciones]);
-              if (nuevosHallazgos.length) await persist.hallazgos([...nuevosHallazgos, ...hallazgos]);
-            }}
+            currentUser={currentUser} accent={accent} primary={primary} config={config}
+            onSave={appendInspectionRecord}
           />
         )}
         {activeModule === "calidad" && tab === "epp" && (
@@ -568,15 +679,13 @@ export default function App() {
             currentUser={currentUser}
             primary={primary}
             accent={accent}
-            onSave={async (insp, nuevosHallazgos) => {
-              await persist.inspecciones([insp, ...inspecciones]);
-              if (nuevosHallazgos.length) await persist.hallazgos([...nuevosHallazgos, ...hallazgos]);
-            }}
+            config={config}
+            onSave={appendInspectionRecord}
           />
         )}
         {activeModule === "calidad" && isAdmin && tab === "historial" && (
           <HistorialView
-            inspecciones={inspecciones} areas={areas} primary={primary}
+            inspecciones={inspecciones} areas={areas} primary={primary} config={config}
             onUpdate={(v) => persist.inspecciones(v)}
             onDeleteCascadeHallazgos={(id) => persist.hallazgos(hallazgos.filter((h) => h.inspeccionId !== id))}
           />
@@ -585,7 +694,7 @@ export default function App() {
           <AnalisisView inspecciones={inspecciones} hallazgos={hallazgos} desviaciones={desviaciones} primary={primary} accent={accent} />
         )}
         {activeModule === "calidad" && isAdmin && tab === "hallazgos" && (
-          <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} />
+          <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} config={config} />
         )}
         {activeModule === "calidad" && isAdmin && tab === "desviaciones" && (
           <DesviacionesView
@@ -619,6 +728,24 @@ export default function App() {
             onConfig={persist.config}
           />
         )}
+        {activeModule === "cocina" && (
+          <EstandarizacionCocinaView
+            familias={stdFamilias}
+            insumos={stdInsumos}
+            recetas={stdRecetas}
+            preparaciones={stdPreparaciones}
+            mermas={stdMermas}
+            onFamilias={persist.stdFamilias}
+            onInsumos={persist.stdInsumos}
+            onRecetas={persist.stdRecetas}
+            onPreparaciones={persist.stdPreparaciones}
+            onMermas={persist.stdMermas}
+            primary={primary}
+            accent={accent}
+            config={config}
+            currentUser={currentUser}
+          />
+        )}
         {activeModule === "admin" && isAdmin && (
           <AdminView
             config={config} areas={areas} eppItems={eppItems} personas={hrColaboradores} usuarios={usuarios}
@@ -626,7 +753,7 @@ export default function App() {
             onConfig={persist.config} onAreas={persist.areas} onEpp={persist.epp}
             onPersonas={persist.hrColaboradores} onUsuarios={persist.usuarios}
             primary={primary}
-            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones }}
+            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas }}
           />
         )}
       </main>
@@ -636,54 +763,64 @@ export default function App() {
 }
 
 function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome, onLogout }) {
-  const moduleLabel = activeModule === "calidad" ? "Calidad e inspecciones" : activeModule === "talento" ? "Gestión del Talento Humano" : activeModule === "admin" ? "Administración global" : "Inicio";
+  const moduleLabel = activeModule === "calidad" ? "Calidad e inspecciones" : activeModule === "talento" ? "Gestión del Talento Humano" : activeModule === "cocina" ? "Estandarización de cocina" : activeModule === "admin" ? "Administración global" : "Inicio";
   const inModule = activeModule !== "menu";
   return (
-    <header className="flex items-center justify-between px-4 py-2 text-white sticky top-0 z-30" style={{ background: primary }}>
-      <div className="flex items-center gap-2 min-w-0">
-        {!inModule && (config.logo ? (
-          <img src={config.logo} className="h-7 w-7 object-contain rounded bg-white/10 p-0.5 flex-shrink-0" alt="logo" />
-        ) : <ClipboardCheck size={22} />)}
-        <div className="min-w-0">
-          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{inModule ? moduleLabel : config.nombre}</p>
-          <p className="text-[11px] text-white/70 truncate">{inModule ? `${currentUser.nombre}${isAdmin ? " · Admin" : ""}` : `${moduleLabel} · ${currentUser.nombre}${isAdmin ? " · Admin" : ""}`}</p>
+    <header className="erp-header" style={{ background: `linear-gradient(135deg, ${primary}, #152033)` }}>
+      <div className="erp-brand">
+        <div className="erp-brand-mark">
+          {!inModule && config.logo ? (
+            <img src={config.logo} alt="logo" />
+          ) : (
+            <ClipboardCheck size={24} />
+          )}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <p className="erp-brand-title" style={{ fontFamily: "inherit" }}>{inModule ? moduleLabel : config.nombre}</p>
+          <p className="erp-brand-meta">{inModule ? `${currentUser.nombre}${isAdmin ? " · Administrador" : ""}` : `${moduleLabel} · ${currentUser.nombre}${isAdmin ? " · Administrador" : ""}`}</p>
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <button onClick={onHome} className="px-2 py-1.5 rounded hover:bg-white/10 text-xs font-bold">Inicio</button>
-        <button onClick={onLogout} className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"><LogOut size={18} /></button>
+      <div className="erp-header-actions">
+        <button onClick={onHome} className="erp-header-button" title="Volver al inicio">
+          <Home size={17} />
+          <span>Inicio</span>
+        </button>
+        <button onClick={onLogout} className="erp-header-icon-button" title="Cerrar sesión"><LogOut size={18} /></button>
       </div>
     </header>
   );
 }
 
-function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
+function ErpModuleLauncher({ config, isAdmin, primary, accent, onSelect }) {
   const modules = [
-    { id: "calidad", title: "Calidad e inspecciones", description: "Inspecciones, EPP, hallazgos y desviaciones.", icon: ClipboardCheck, enabled: true, color: accent },
-    { id: "talento", title: "Talento humano", description: "Colaboradores, evaluaciones y planes.", icon: BriefcaseBusiness, enabled: isAdmin, color: primary },
-    { id: "admin", title: "Administración", description: "Usuarios, temas, logo y backups.", icon: Settings, enabled: isAdmin, color: "#5C6673" },
+    { id: "calidad", title: "Calidad", action: "Inspeccionar", icon: ClipboardCheck, enabled: true, color: accent },
+    { id: "talento", title: "Talento", action: "Gestionar", icon: BriefcaseBusiness, enabled: isAdmin, color: primary },
+    { id: "cocina", title: "Fichas", action: "Consultar", icon: ChefHat, enabled: true, color: "#1E7A46" },
+    { id: "admin", title: "Admin", action: "Configurar", icon: Settings, enabled: isAdmin, color: "#5C6673" },
   ];
   return (
-    <div className="py-3 space-y-3">
-      <div className="bg-white rounded-xl p-3">
-        <h1 className="text-lg font-black text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Módulos del ERP</h1>
-        <p className="text-sm text-gray-500 mt-1">Selecciona el área de trabajo.</p>
+    <div className="module-launcher">
+      <div className="module-launcher-hero">
+        <h1 className="module-launcher-title" style={{ fontFamily: "inherit" }}>Módulos del ERP</h1>
+        <p className="module-launcher-subtitle">Selecciona el área de trabajo</p>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="module-grid">
         {modules.map((module) => {
           const Icon = module.icon;
+          const customLogo = config?.moduleLogos?.[module.id];
           return (
             <button
               key={module.id}
               disabled={!module.enabled}
               onClick={() => onSelect(module.id)}
-              className="bg-white rounded-xl p-3 min-h-40 border border-transparent hover:border-gray-200 disabled:opacity-45 flex flex-col items-center justify-center text-center gap-2"
+              className="module-card"
+              style={{ borderColor: `${module.color}26` }}
             >
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: `${module.color}18` }}>
-                <Icon size={34} color={module.color} />
+              <div className="module-card-icon" style={{ background: `linear-gradient(145deg, ${module.color}22, ${module.color}0D)` }}>
+                {customLogo ? <img src={customLogo} alt="" /> : <Icon size={50} color={module.color} strokeWidth={2.2} />}
               </div>
-              <h2 className="font-black text-gray-800 text-base leading-tight" style={{ fontFamily: "Oswald, sans-serif" }}>{module.title}</h2>
-              <p className="text-xs text-gray-500 leading-snug">{module.description}</p>
+              <h2 className="module-card-title" style={{ fontFamily: "inherit" }}>{module.title}</h2>
+              <span className="module-card-action" style={{ background: module.color }}>{module.action}</span>
             </button>
           );
         })}
@@ -693,57 +830,115 @@ function ErpModuleLauncher({ isAdmin, primary, accent, onSelect }) {
 }
 
 function ChecklistItemRow({ item, status, observation, evidence, expanded, evidenceExpanded, onToggleObservation, onToggleEvidence, onStatus, onObservation, onEvidence, primary }) {
+  const evidenceList = normalizeEvidenceList(evidence);
   return (
-    <div className="grid grid-cols-[minmax(190px,1fr)_190px_minmax(210px,1fr)_112px] gap-1.5 items-start border-b border-gray-100 py-1.5 last:border-0 min-w-[720px]">
-      <div className="px-2 py-1.5 min-h-14 flex items-center">
-        <p className="text-sm font-semibold text-gray-700 leading-snug">{item.texto}</p>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(280px, 1fr) 284px 150px 52px",
+        gap: 6,
+        alignItems: "center",
+        minWidth: 780,
+        padding: "6px 0",
+        borderBottom: "1px solid #EEF1F4",
+      }}
+    >
+      <div style={{ minHeight: 40, display: "flex", alignItems: "center", padding: "0 8px", textAlign: "left" }}>
+        <p style={{ margin: 0, color: "#445064", fontSize: 14, lineHeight: 1.2, fontWeight: 700 }}>{item.texto}</p>
       </div>
-      <div className="px-1 py-1">
+      <div style={{ minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <StatusPicker value={status} onChange={onStatus} compact />
       </div>
-      <div className="px-1 py-1">
+      <div style={{ minHeight: 40, display: "flex", alignItems: "center" }}>
         <button
           type="button"
           onClick={onToggleObservation}
-          className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-between gap-2"
-          style={{ borderColor: expanded ? primary : "#D8DCE1" }}
+          style={{
+            width: "100%",
+            minHeight: 36,
+            padding: "0 10px",
+            borderRadius: 9,
+            border: `1px solid ${expanded ? primary : "#D8DCE1"}`,
+            background: "#fff",
+            color: "#5C6673",
+            fontSize: 13,
+            fontWeight: 800,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
         >
-          <span className="truncate">{observation ? observation : "Observaciones"}</span>
-          <ChevronRight size={15} className={`flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{observation ? observation : "Observaciones"}</span>
+          <ChevronRight size={15} style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none" }} />
         </button>
-        {expanded && (
+      </div>
+      <div style={{ minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button
+          type="button"
+          onClick={onToggleEvidence}
+          style={{
+            width: 42,
+            minHeight: 36,
+            borderRadius: 9,
+            border: `1px solid ${evidenceExpanded ? primary : "#D8DCE1"}`,
+            background: "#fff",
+            color: "#5C6673",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 3,
+          }}
+        >
+          <ImagePlus size={16} />
+          {evidenceList.length > 0 && <span style={{ color: "#1E7A46", fontSize: 11, fontWeight: 900 }}>{evidenceList.length}</span>}
+        </button>
+      </div>
+      {expanded && (
+        <div style={{ gridColumn: "1 / -1", padding: "0 8px 4px" }}>
           <textarea
             value={observation || ""}
             onChange={(event) => onObservation(event.target.value)}
             rows={2}
             autoFocus
             placeholder="Escribe la observación de este item"
-            className="w-full mt-1 border rounded-md px-2 py-1.5 text-sm min-h-20"
+            style={{
+              width: "100%",
+              minHeight: 62,
+              border: `1px solid ${primary}`,
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontSize: 14,
+              boxSizing: "border-box",
+            }}
           />
-        )}
-      </div>
-      <div className="px-1 py-1">
-        <button
-          type="button"
-          onClick={onToggleEvidence}
-          className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-center gap-1"
-          style={{ borderColor: evidenceExpanded ? primary : "#D8DCE1" }}
+        </div>
+      )}
+      {evidenceExpanded && (
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            padding: "0 8px 4px",
+          }}
         >
-          <ImagePlus size={16} />
-          {evidence && <Check size={13} color="#1E7A46" />}
-        </button>
-        {evidenceExpanded && (
-          <div className="mt-1">
-            <EvidenceActions onChange={onEvidence} primary={primary} multiple={false} compact />
-          </div>
-        )}
-        {evidence && <img src={evidence} alt="" className="mt-1 h-10 w-full object-cover rounded-md border" />}
-      </div>
+          <EvidenceActions onChange={onEvidence} primary={primary} multiple compact />
+          <p style={{ margin: 0, color: "#8A94A3", fontSize: 11, fontWeight: 800 }}>{evidenceList.length}/3 fotos</p>
+        </div>
+      )}
+      {evidenceList.length > 0 && (
+        <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(3, 56px)", gap: 6, justifyContent: "end", padding: "0 8px 4px" }}>
+          {evidenceList.map((src, index) => <img key={index} src={src} alt="" style={{ width: 56, height: 42, objectFit: "cover", borderRadius: 7, border: "1px solid #D8DCE1" }} />)}
+        </div>
+      )}
     </div>
   );
 }
 
-function AreaInspectionView({ areas, personas, currentUser, accent, primary, onSave }) {
+function AreaInspectionView({ areas, personas, currentUser, accent, primary, config, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
   const [itemNotes, setItemNotes] = useState({});
@@ -753,6 +948,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   const [responsableId, setResponsableId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
+  const [showGeneralEvidence, setShowGeneralEvidence] = useState(false);
   const [firmaInspector, setFirmaInspector] = useState("");
   const [firmaResponsable, setFirmaResponsable] = useState("");
   const [saved, setSaved] = useState(false);
@@ -777,6 +973,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     setResponsableId("");
     setObservaciones("");
     setEvidencias([]);
+    setShowGeneralEvidence(false);
     setFirmaInspector("");
     setFirmaResponsable("");
     setSaved(false);
@@ -790,16 +987,19 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   };
 
   const handleItemEvidence = async (itemId, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const converted = await resizeImageToDataUrl(file, 520);
-    setItemEvidence((prev) => ({ ...prev, [itemId]: converted }));
+    const files = Array.from(e.target.files || []).slice(0, MAX_EVIDENCE_PER_ITEM);
+    if (!files.length) return;
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 520)));
+    setItemEvidence((prev) => {
+      const current = normalizeEvidenceList(prev[itemId]);
+      return { ...prev, [itemId]: [...current, ...converted].slice(0, MAX_EVIDENCE_PER_ITEM) };
+    });
     e.target.value = "";
   };
 
   const handleSave = async () => {
     if (!allAnswered || !area) return;
-    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
+    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: normalizeEvidenceList(itemEvidence[it.id]) }));
     const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
     const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
     const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
@@ -842,13 +1042,14 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
       subtitle: "Formato para inspeccion de area.",
       items: area.items,
       primary,
+      config,
     }));
   };
   const shareBlankChecklist = async () => {
     if (!area) return;
     await shareDocument({
       filename: `lista-chequeo-${area.nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
-      html: checklistPrintHtml({ title: `Lista de chequeo - ${area.nombre}`, subtitle: "Formato para inspección de área.", items: area.items, primary }),
+      html: checklistPrintHtml({ title: `Lista de chequeo - ${area.nombre}`, subtitle: "Formato para inspección de área.", items: area.items, primary, config }),
       title: `Lista de chequeo - ${area.nombre}`,
       text: `Lista de chequeo para ${area.nombre}`,
     });
@@ -858,7 +1059,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
     return (
       <div className="bg-white rounded-xl p-6 text-center mt-6">
         <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
-        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Inspeccion guardada</h3>
+        <h3 className="font-bold text-lg" style={{ fontFamily: "inherit" }}>Inspeccion guardada</h3>
         <p className="text-sm text-gray-500 mt-1">El registro quedo guardado correctamente.</p>
         <button onClick={() => resetForm()} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
           Nueva inspeccion
@@ -870,7 +1071,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-2 space-y-2">
-        <div className="grid sm:grid-cols-[110px_1fr_auto_auto] gap-2 items-center">
+        <div style={{ display: "grid", gridTemplateColumns: "72px minmax(260px, 1fr) auto auto", gap: 8, alignItems: "center" }}>
           <label className="text-xs font-bold text-gray-500 uppercase">Area</label>
           <select value={areaId} onChange={(e) => resetForm(e.target.value)} className="w-full border rounded-md px-3 py-2 font-semibold">
             {areas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
@@ -882,7 +1083,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             <Download size={15} /> WhatsApp
           </button>
         </div>
-        <div className="grid sm:grid-cols-[110px_1fr_150px] gap-2 items-center">
+        <div style={{ display: "grid", gridTemplateColumns: "120px minmax(260px, 1fr) 150px", gap: 8, alignItems: "center" }}>
           <label className="text-xs font-bold text-gray-500 uppercase flex items-center justify-center gap-1"><Users size={12} /> Responsable</label>
           <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className="w-full border rounded-md px-3 py-2 font-semibold">
             <option value="">Seleccionar responsable</option>
@@ -913,8 +1114,8 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
         */}
 
         {area && (
-          <div className="bg-white rounded-xl p-2 overflow-x-auto">
-            <div className="min-w-[720px]">
+          <div className="bg-white rounded-xl p-2 overflow-x-auto" style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 820 }}>
               {area.items.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -942,11 +1143,22 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
             className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
             style={{ borderColor: "#E2E8F0" }}
             placeholder="Describe hallazgos, condiciones del area o acciones inmediatas..." />
-          <EvidenceActions onChange={handleEvidence} primary={primary} />
-          {evidencias.length > 0 && <p className="text-xs text-gray-400">{evidencias.length} evidencia(s) adjunta(s)</p>}
+          <button type="button" onClick={() => setShowGeneralEvidence((v) => !v)} className="w-full py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+            <ImagePlus size={15} /> {showGeneralEvidence ? "Ocultar evidencias" : `Adjuntar evidencias${evidencias.length ? ` (${evidencias.length})` : ""}`}
+          </button>
+          {showGeneralEvidence && (
+            <div className="rounded-lg border border-gray-100 p-2">
+              <EvidenceActions onChange={handleEvidence} primary={primary} />
+              {evidencias.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-2">
+                  {evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-16 w-full object-cover rounded-md border" />)}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="signature-grid" style={{ "--signature-columns": 2 }}>
           <SignaturePad label="Firma inspector" value={firmaInspector} onChange={setFirmaInspector} />
           <SignaturePad label="Firma responsable del area" value={firmaResponsable} onChange={setFirmaResponsable} />
         </div>
@@ -961,7 +1173,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, onS
   );
 }
 
-function EppChecklistView({ eppItems, personas, currentUser, primary, accent, onSave }) {
+function EppChecklistView({ eppItems, personas, currentUser, primary, accent, config, onSave }) {
   const [personaId, setPersonaId] = useState(personas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
   const [itemNotes, setItemNotes] = useState({});
@@ -970,6 +1182,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   const [expandedEvidenceId, setExpandedEvidenceId] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [evidencias, setEvidencias] = useState([]);
+  const [showGeneralEvidence, setShowGeneralEvidence] = useState(false);
   const [firmaInspector, setFirmaInspector] = useState("");
   const [firmaResponsable, setFirmaResponsable] = useState("");
   const [saved, setSaved] = useState(false);
@@ -988,6 +1201,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     setExpandedEvidenceId("");
     setObservaciones("");
     setEvidencias([]);
+    setShowGeneralEvidence(false);
     setFirmaInspector("");
     setFirmaResponsable("");
     setSaved(false);
@@ -1001,16 +1215,19 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   };
 
   const handleItemEvidence = async (itemId, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const converted = await resizeImageToDataUrl(file, 520);
-    setItemEvidence((prev) => ({ ...prev, [itemId]: converted }));
+    const files = Array.from(e.target.files || []).slice(0, MAX_EVIDENCE_PER_ITEM);
+    if (!files.length) return;
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 520)));
+    setItemEvidence((prev) => {
+      const current = normalizeEvidenceList(prev[itemId]);
+      return { ...prev, [itemId]: [...current, ...converted].slice(0, MAX_EVIDENCE_PER_ITEM) };
+    });
     e.target.value = "";
   };
 
   const handleSave = async () => {
     if (!allAnswered) return;
-    const itemsRes = eppItems.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
+    const itemsRes = eppItems.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: normalizeEvidenceList(itemEvidence[it.id]) }));
     const noCumpleCount = itemsRes.filter((i) => i.estado === "no_cumple").length;
     const parcialCount = itemsRes.filter((i) => i.estado === "parcial").length;
     const cumpleCount = itemsRes.filter((i) => i.estado === "cumple").length;
@@ -1054,6 +1271,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
       subtitle: persona ? `Formato para ${persona.nombre}` : "Formato para verificacion del colaborador.",
       items: eppItems,
       primary,
+      config,
     }));
   };
   const shareEppChecklist = async () => {
@@ -1064,6 +1282,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
         subtitle: persona ? `Formato para ${persona.nombre}` : "Formato para verificación del colaborador.",
         items: eppItems,
         primary,
+        config,
       }),
       title: "Lista de verificación EPP",
       text: persona ? `Lista EPP para ${persona.nombre}` : "Lista de verificación EPP",
@@ -1074,7 +1293,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
     return (
       <div className="bg-white rounded-xl p-6 text-center mt-6">
         <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
-        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Verificacion EPP guardada</h3>
+        <h3 className="font-bold text-lg" style={{ fontFamily: "inherit" }}>Verificacion EPP guardada</h3>
         <p className="text-sm text-gray-500 mt-1">El registro quedo guardado y los incumplimientos pasaron a Hallazgos.</p>
         <button onClick={resetForm} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
           Nueva verificacion EPP
@@ -1086,7 +1305,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-2">
-        <div className="grid sm:grid-cols-[120px_1fr_150px_auto_auto] gap-2 items-center">
+        <div style={{ display: "grid", gridTemplateColumns: "110px minmax(260px, 1fr) 150px auto auto", gap: 8, alignItems: "center" }}>
           <label className="text-xs font-bold text-gray-500 uppercase">Colaborador</label>
           <select value={personaId} onChange={(e) => { setPersonaId(e.target.value); setItemStates({}); setItemNotes({}); setItemEvidence({}); setExpandedNoteId(""); setExpandedEvidenceId(""); }} className="w-full border rounded-md px-3 py-2 font-semibold">
             <option value="">Seleccionar colaborador</option>
@@ -1107,12 +1326,12 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-2 overflow-x-auto">
+      <div className="bg-white rounded-xl p-2 overflow-x-auto" style={{ overflowX: "auto" }}>
         {eppItems.length === 0 ? (
           <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
         ) : (
           <>
-            <div className="min-w-[720px]">
+            <div style={{ minWidth: 820 }}>
               {eppItems.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -1141,15 +1360,22 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, on
           className="w-full border-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
           style={{ borderColor: "#E2E8F0" }}
           placeholder="Describe incumplimientos, reposicion requerida o novedades del EPP..." />
-        <EvidenceActions onChange={handleEvidence} primary={primary} />
-        {evidencias.length > 0 && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-            {evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+        <button type="button" onClick={() => setShowGeneralEvidence((v) => !v)} className="w-full py-2 rounded-md border text-sm font-bold flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
+          <ImagePlus size={15} /> {showGeneralEvidence ? "Ocultar evidencias" : `Adjuntar evidencias${evidencias.length ? ` (${evidencias.length})` : ""}`}
+        </button>
+        {showGeneralEvidence && (
+          <div className="rounded-lg border border-gray-100 p-2">
+            <EvidenceActions onChange={handleEvidence} primary={primary} />
+            {evidencias.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-2">
+                {evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-16 w-full object-cover rounded-md border" />)}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="signature-grid" style={{ "--signature-columns": 2 }}>
         <SignaturePad label="Firma inspector" value={firmaInspector} onChange={setFirmaInspector} />
         <SignaturePad label="Firma colaborador / responsable" value={firmaResponsable} onChange={setFirmaResponsable} />
       </div>
@@ -1240,19 +1466,19 @@ function SignaturePad({ value, onChange, label }) {
   }, [open, value]);
 
   return (
-    <div className="border rounded-xl p-2 bg-gray-50">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
-        {value && <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>}
+    <div className="signature-card">
+      <div className="signature-card-header">
+        <p className="signature-card-title">{label}</p>
+        {value && <button type="button" onClick={clear} className="signature-clear-button">Limpiar</button>}
       </div>
       {value ? (
-        <img src={value} alt={label} className="w-full h-24 object-contain bg-white rounded-lg border" />
+        <img src={value} alt={label} className="signature-preview-img" />
       ) : (
-        <div className="w-full h-24 bg-white rounded-lg border border-dashed flex items-center justify-center text-xs text-gray-400">
+        <div className="signature-preview-empty">
           Sin firma
         </div>
       )}
-      <button type="button" onClick={() => setOpen(true)} className="w-full mt-2 py-2 rounded-md border text-sm font-bold bg-white">
+      <button type="button" onClick={() => setOpen(true)} className="signature-open-button">
         Abrir panel de firma
       </button>
       {open && (
@@ -1291,12 +1517,12 @@ function SignaturePad({ value, onChange, label }) {
 function EvidenceActions({ onChange, primary, multiple = true, compact = false }) {
   return (
     <div className={`flex ${compact ? "gap-1" : "flex-wrap gap-2"} items-center justify-center`}>
-      <label title="Tomar foto" className={`inline-flex items-center justify-center gap-2 rounded-md border font-bold cursor-pointer bg-white ${compact ? "w-12 h-12 p-0" : "px-3 py-2 text-sm"}`} style={{ borderColor: primary, color: primary }}>
-        <ImagePlus size={compact ? 18 : 16} /> {!compact && "Tomar foto"}
+      <label title="Tomar foto" aria-label="Tomar foto" className="file-icon-button" style={{ borderColor: primary, color: primary }}>
+        <ImagePlus size={compact ? 18 : 17} />
         <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
       </label>
-      <label title="Galeria / archivo" className={`inline-flex items-center justify-center gap-2 rounded-md border font-bold cursor-pointer bg-white ${compact ? "w-12 h-12 p-0" : "px-3 py-2 text-sm"}`} style={{ borderColor: "#CBD5E1", color: "#475569" }}>
-        <Download size={compact ? 18 : 16} /> {!compact && "Galeria / archivo"}
+      <label title="Galeria / archivo" aria-label="Galeria / archivo" className="file-icon-button" style={{ borderColor: "#CBD5E1", color: "#475569" }}>
+        <Download size={compact ? 18 : 17} />
         <input type="file" accept="image/*" multiple={multiple} onChange={onChange} className="hidden" />
       </label>
     </div>
@@ -1333,6 +1559,7 @@ function DesviacionesView({ desviaciones, areas, colaboradores, currentUser, pri
   };
   const [form, setForm] = useState(blank);
   const [detalle, setDetalle] = useState(null);
+  const [showEvidenceForm, setShowEvidenceForm] = useState(false);
   const codigoPreview = nextDeviationCode(desviaciones);
 
   const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
@@ -1358,6 +1585,7 @@ function DesviacionesView({ desviaciones, areas, colaboradores, currentUser, pri
     };
     onUpdate([record, ...desviaciones]);
     setForm(blank);
+    setShowEvidenceForm(false);
   };
   const updateDeviation = (id, patch) => {
     const updated = desviaciones.map((d) => {
@@ -1383,118 +1611,108 @@ function DesviacionesView({ desviaciones, areas, colaboradores, currentUser, pri
   const criticas = desviaciones.filter((d) => d.gravedad === "Critica" || d.gravedad === "Alta").length;
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 grid grid-cols-3 gap-2">
-        <div className="bg-gray-50 rounded-lg p-2 text-center">
-          <p className="text-xl font-black" style={{ color: primary }}>{desviaciones.length}</p>
-          <p className="text-[10px] text-gray-400 uppercase font-bold">Desviaciones</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-2 text-center">
-          <p className="text-xl font-black" style={{ color: "#B4750E" }}>{abiertas}</p>
-          <p className="text-[10px] text-gray-400 uppercase font-bold">Abiertas</p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-2 text-center">
-          <p className="text-xl font-black" style={{ color: "#B5333D" }}>{criticas}</p>
-          <p className="text-[10px] text-gray-400 uppercase font-bold">Altas/criticas</p>
-        </div>
+    <div className="deviation-shell">
+      <div className="deviation-summary-grid">
+        <div className="deviation-summary-card"><strong style={{ color: primary }}>{desviaciones.length}</strong><span>Desviaciones</span></div>
+        <div className="deviation-summary-card"><strong style={{ color: "#B4750E" }}>{abiertas}</strong><span>Abiertas</span></div>
+        <div className="deviation-summary-card"><strong style={{ color: "#B5333D" }}>{criticas}</strong><span>Altas / críticas</span></div>
       </div>
 
-      <div className="bg-white rounded-xl p-3 space-y-3">
-        <div className="flex items-center justify-between gap-2">
+      <div className="deviation-form-card">
+        <div className="deviation-form-header">
           <div>
-            <h2 className="font-black text-lg text-gray-800" style={{ fontFamily: "Oswald, sans-serif" }}>Gestion de desviaciones</h2>
-            <p className="text-xs text-gray-400">Consecutivo automatico: {codigoPreview}</p>
+            <h2>Gestión de desviaciones</h2>
+            <p>Consecutivo automático: <b>{codigoPreview}</b></p>
           </div>
           <Badge color="#B4750E" bg="#FCF1DC">{form.estado}</Badge>
         </div>
 
-        <div className="grid sm:grid-cols-3 gap-2">
-          <select value={form.area} onChange={(e) => updateField("area", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
-          </select>
-          <select value={form.servicio} onChange={(e) => updateField("servicio", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            {DEVIATION_SERVICES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <input value={form.comedor} onChange={(e) => updateField("comedor", e.target.value)} placeholder="Comedor" className="border rounded-md px-3 py-2 text-sm" />
-          <input value={form.reportadoPor} onChange={(e) => updateField("reportadoPor", e.target.value)} placeholder="Quien la presenta" className="border rounded-md px-3 py-2 text-sm" />
-          <input value={form.cargo} onChange={(e) => updateField("cargo", e.target.value)} placeholder="Cargo" className="border rounded-md px-3 py-2 text-sm" />
-          <select value={form.tipo} onChange={(e) => updateField("tipo", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            {DEVIATION_TYPES.map((t) => <option key={t}>{t}</option>)}
-          </select>
-          <select value={form.gravedad} onChange={(e) => updateField("gravedad", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            {DEVIATION_SEVERITIES.map((g) => <option key={g}>{g}</option>)}
-          </select>
-          <select value={form.responsableId} onChange={(e) => selectResponsible(e.target.value, "responsableId", "responsableNombre")} className="border rounded-md px-3 py-2 text-sm">
-            <option value="">Responsable del hallazgo</option>
-            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-          <input value={form.responsabilidad} onChange={(e) => updateField("responsabilidad", e.target.value)} placeholder="Responsabilidad" className="border rounded-md px-3 py-2 text-sm" />
+        <div className="deviation-section">
+          <div className="deviation-section-title"><h3>Registro</h3><span>Origen y clasificación</span></div>
+          <div className="deviation-field-grid">
+            <select value={form.area} onChange={(e) => updateField("area", e.target.value)}>{areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}</select>
+            <select value={form.servicio} onChange={(e) => updateField("servicio", e.target.value)}>{DEVIATION_SERVICES.map((s) => <option key={s}>{s}</option>)}</select>
+            <input value={form.comedor} onChange={(e) => updateField("comedor", e.target.value)} placeholder="Comedor" />
+            <input value={form.reportadoPor} onChange={(e) => updateField("reportadoPor", e.target.value)} placeholder="Quién la presenta" />
+            <input value={form.cargo} onChange={(e) => updateField("cargo", e.target.value)} placeholder="Cargo" />
+            <select value={form.tipo} onChange={(e) => updateField("tipo", e.target.value)}>{DEVIATION_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+            <select value={form.gravedad} onChange={(e) => updateField("gravedad", e.target.value)}>{DEVIATION_SEVERITIES.map((g) => <option key={g}>{g}</option>)}</select>
+            <select value={form.responsableId} onChange={(e) => selectResponsible(e.target.value, "responsableId", "responsableNombre")}>
+              <option value="">Responsable del hallazgo</option>
+              {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <input value={form.responsabilidad} onChange={(e) => updateField("responsabilidad", e.target.value)} placeholder="Responsabilidad" />
+          </div>
         </div>
 
-        <textarea value={form.descripcion} onChange={(e) => updateField("descripcion", e.target.value)} placeholder="Descripcion de la desviacion" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <textarea value={form.causaInmediata} onChange={(e) => updateField("causaInmediata", e.target.value)} placeholder="Causa inmediata" className="w-full border rounded-md px-3 py-2 text-sm" />
-
-        <div className="grid sm:grid-cols-2 gap-2">
-          <textarea value={form.accionInmediata} onChange={(e) => updateField("accionInmediata", e.target.value)} placeholder="Accion inmediata: cambio, reposicion, reproceso, descarte..." className="w-full border rounded-md px-3 py-2 text-sm" />
-          <textarea value={form.accionCorrectiva} onChange={(e) => updateField("accionCorrectiva", e.target.value)} placeholder="Accion correctiva / plan de cierre" className="w-full border rounded-md px-3 py-2 text-sm" />
-          <select value={form.responsableCierreId} onChange={(e) => selectResponsible(e.target.value, "responsableCierreId", "responsableCierreNombre")} className="border rounded-md px-3 py-2 text-sm">
-            <option value="">Responsable del cierre</option>
-            {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-          <input type="date" value={form.fechaCompromiso} onChange={(e) => updateField("fechaCompromiso", e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
-          <input type="date" value={form.fechaCierreReal} onChange={(e) => updateField("fechaCierreReal", e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
-          <select value={form.estado} onChange={(e) => updateField("estado", e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            {DEVIATION_STATES.map((s) => <option key={s}>{s}</option>)}
-          </select>
+        <div className="deviation-section">
+          <div className="deviation-section-title"><h3>Análisis</h3><span>Descripción y acciones</span></div>
+          <div className="deviation-text-grid">
+            <textarea value={form.descripcion} onChange={(e) => updateField("descripcion", e.target.value)} placeholder="Descripción de la desviación" />
+            <textarea value={form.causaInmediata} onChange={(e) => updateField("causaInmediata", e.target.value)} placeholder="Causa inmediata" />
+            <textarea value={form.accionInmediata} onChange={(e) => updateField("accionInmediata", e.target.value)} placeholder="Acción inmediata: cambio, reposición, reproceso, descarte..." />
+            <textarea value={form.accionCorrectiva} onChange={(e) => updateField("accionCorrectiva", e.target.value)} placeholder="Acción correctiva / plan de cierre" />
+          </div>
         </div>
 
-        <textarea value={form.anotacionCierre} onChange={(e) => updateField("anotacionCierre", e.target.value)} placeholder="Anotacion y cierre" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <select value={form.eficacia} onChange={(e) => updateField("eficacia", e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm">
-          {DEVIATION_EFFECTIVENESS.map((s) => <option key={s}>{s}</option>)}
-        </select>
+        <div className="deviation-section">
+          <div className="deviation-section-title"><h3>Cierre</h3><span>Seguimiento y eficacia</span></div>
+          <div className="deviation-field-grid deviation-close-grid">
+            <select value={form.responsableCierreId} onChange={(e) => selectResponsible(e.target.value, "responsableCierreId", "responsableCierreNombre")}>
+              <option value="">Responsable del cierre</option>
+              {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <input type="date" value={form.fechaCompromiso} onChange={(e) => updateField("fechaCompromiso", e.target.value)} />
+            <input type="date" value={form.fechaCierreReal} onChange={(e) => updateField("fechaCierreReal", e.target.value)} />
+            <select value={form.estado} onChange={(e) => updateField("estado", e.target.value)}>{DEVIATION_STATES.map((s) => <option key={s}>{s}</option>)}</select>
+            <select value={form.eficacia} onChange={(e) => updateField("eficacia", e.target.value)}>{DEVIATION_EFFECTIVENESS.map((s) => <option key={s}>{s}</option>)}</select>
+          </div>
+          <textarea className="deviation-full-textarea" value={form.anotacionCierre} onChange={(e) => updateField("anotacionCierre", e.target.value)} placeholder="Anotación y cierre" />
+        </div>
 
-        <div className="bg-gray-50 rounded-xl p-3">
-          <EvidenceActions onChange={handleEvidence} primary={primary} />
-          {form.evidencias.length > 0 && (
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-3">
-              {form.evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
+        <div className="deviation-evidence-card">
+          <button type="button" onClick={() => setShowEvidenceForm((v) => !v)} style={{ borderColor: primary, color: primary }}>
+            <ImagePlus size={15} /> {showEvidenceForm ? "Ocultar evidencias" : `Evidencia fotográfica${form.evidencias.length ? ` (${form.evidencias.length})` : ""}`}
+          </button>
+          {showEvidenceForm && (
+            <div className="deviation-evidence-panel">
+              <EvidenceActions onChange={handleEvidence} primary={primary} />
+              {form.evidencias.length > 0 && (
+                <div className="deviation-photo-grid">
+                  {form.evidencias.map((src, index) => <img key={index} src={src} alt="" />)}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="signature-grid" style={{ "--signature-columns": 3 }}>
           <SignaturePad label="Firma supervisor" value={form.firmaSupervisor} onChange={(v) => updateField("firmaSupervisor", v)} />
           <SignaturePad label="Firma responsable" value={form.firmaResponsable} onChange={(v) => updateField("firmaResponsable", v)} />
+          <SignaturePad label="Firma cliente o representante del área (opcional)" value={form.firmaCliente} onChange={(v) => updateField("firmaCliente", v)} />
         </div>
-        <SignaturePad label="Firma cliente o representante del area (opcional)" value={form.firmaCliente} onChange={(v) => updateField("firmaCliente", v)} />
 
-        <button onClick={save} className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2" style={{ background: primary }}>
-          <Save size={18} /> Guardar desviacion
+        <button onClick={save} className="deviation-save-button" style={{ background: primary }}>
+          <Save size={18} /> Guardar desviación
         </button>
       </div>
 
-      <div className="space-y-2">
-        {desviaciones.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin desviaciones registradas.</p>}
+      <div className="deviation-list">
+        {desviaciones.length === 0 && <div className="deviation-empty">Sin desviaciones registradas.</div>}
         {desviaciones.map((d) => (
-          <div key={d.id} className="bg-white rounded-xl p-3 border border-gray-100">
-            <button onClick={() => setDetalle(d)} className="w-full text-left">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-bold text-sm">{d.codigo} · {d.tipo}</p>
-                  <p className="text-xs text-gray-400">{fmtFecha(d.fecha)} · {d.area} · {d.servicio}</p>
-                  <p className="text-xs text-gray-600 mt-1 line-clamp-2">{d.descripcion}</p>
-                </div>
-                <Badge color={d.estado === "Cerrada" ? "#1E7A46" : d.gravedad === "Critica" ? "#B5333D" : "#B4750E"} bg={d.estado === "Cerrada" ? "#E4F4EA" : "#FCF1DC"}>{d.estado}</Badge>
+          <div key={d.id} className="deviation-record-card">
+            <button onClick={() => setDetalle(d)} className="deviation-record-main">
+              <div>
+                <p>{d.codigo} · {d.tipo}</p>
+                <span>{fmtFecha(d.fecha)} · {d.area} · {d.servicio}</span>
+                <em>{d.descripcion}</em>
               </div>
+              <Badge color={d.estado === "Cerrada" ? "#1E7A46" : d.gravedad === "Critica" ? "#B5333D" : "#B4750E"} bg={d.estado === "Cerrada" ? "#E4F4EA" : "#FCF1DC"}>{d.estado}</Badge>
             </button>
-            <div className="flex gap-2 mt-3">
-              <button onClick={() => printDeviation(d)} className="flex-1 py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-                <FileText size={13} /> Documento
-              </button>
-              <button onClick={() => shareDeviation(d)} className="flex-1 py-2 rounded-md text-xs font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}>
-                <Download size={13} /> WhatsApp
-              </button>
-              <button onClick={() => updateDeviation(d.id, { estado: d.estado === "Cerrada" ? "En proceso" : "Cerrada", fechaCierreReal: d.estado === "Cerrada" ? "" : new Date().toISOString().slice(0, 10) })} className="flex-1 py-2 rounded-md text-xs font-bold text-white" style={{ background: primary }}>
+            <div className="deviation-record-actions">
+              <button onClick={() => printDeviation(d)} style={{ borderColor: primary, color: primary }}><FileText size={13} /> Documento</button>
+              <button onClick={() => shareDeviation(d)} style={{ borderColor: primary, color: primary }}><Download size={13} /> WhatsApp</button>
+              <button onClick={() => updateDeviation(d.id, { estado: d.estado === "Cerrada" ? "En proceso" : "Cerrada", fechaCierreReal: d.estado === "Cerrada" ? "" : new Date().toISOString().slice(0, 10) })} style={{ background: primary, color: "#fff", borderColor: primary }}>
                 {d.estado === "Cerrada" ? "Reabrir" : "Cerrar"}
               </button>
             </div>
@@ -1557,18 +1775,18 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseñas no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif", appBackground: "#F1F3F4", cellBackground: "#FFFFFF", fieldBorderWidth: 1, fieldPaddingY: 9 },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", textColor: "#243040", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif", appBackground: "#F1F3F4", cellBackground: "#FFFFFF", fieldBorderWidth: 1, fieldPaddingY: 9 },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#1F2B3A] p-4">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');`}</style>
       <div className="bg-white rounded-xl w-full max-w-sm p-6">
         <div className="flex items-center gap-2 mb-1">
           <ClipboardCheck color="#F2622E" size={26} />
-          <h1 className="text-lg font-black" style={{ fontFamily: "Oswald, sans-serif" }}>Configuración inicial</h1>
+          <h1 className="text-lg font-black" style={{ fontFamily: "inherit" }}>Configuración inicial</h1>
         </div>
         <p className="text-sm text-gray-500 mb-4">Define el nombre de tu checklist y crea la cuenta de administrador.</p>
 
@@ -1603,7 +1821,7 @@ function SetupWizard({ onDone }) {
 function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "#1F2B3A" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');`}</style>
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
           {config.logo ? (
@@ -1613,7 +1831,7 @@ function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
               <ClipboardCheck color="#fff" size={28} />
             </div>
           )}
-          <h1 className="text-white text-xl font-black" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</h1>
+          <h1 className="text-white text-xl font-black" style={{ fontFamily: "inherit" }}>{config.nombre}</h1>
           <p className="text-gray-300 text-xs mt-1">Selecciona tu usuario para ingresar</p>
         </div>
 
@@ -1649,7 +1867,8 @@ function LoginScreen({ config, usuarios, onSelectUsuario, children }) {
 
 /* ---------------------------------- header + nav ---------------------------------- */
 
-function Header({ config, primary, currentUser, isAdmin, onLogout }) {
+// eslint-disable-next-line no-unused-vars
+function LegacyHeader({ config, primary, currentUser, isAdmin, onLogout }) {
   return (
     <header className="flex items-center justify-between px-4 py-2.5 text-white sticky top-0 z-30" style={{ background: primary }}>
       <div className="flex items-center gap-2 min-w-0">
@@ -1659,7 +1878,7 @@ function Header({ config, primary, currentUser, isAdmin, onLogout }) {
           <ClipboardCheck size={22} />
         )}
         <div className="min-w-0">
-          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "Oswald, sans-serif" }}>{config.nombre}</p>
+          <p className="font-bold text-sm leading-tight truncate" style={{ fontFamily: "inherit" }}>{config.nombre}</p>
           <p className="text-[11px] text-white/60 truncate">{currentUser.nombre} {isAdmin && "· Admin"}</p>
         </div>
       </div>
@@ -1700,7 +1919,8 @@ function QualityTabs({ tab, setTab, primary, isAdmin }) {
 
 /* ---------------------------------- inspección ---------------------------------- */
 
-function InspeccionView({ areas, eppItems, personas, currentUser, accent, primary, onSave }) {
+// eslint-disable-next-line no-unused-vars
+function LegacyInspeccionView({ areas, eppItems, personas, currentUser, accent, primary, onSave }) {
   const [areaId, setAreaId] = useState(areas[0]?.id || "");
   const [itemStates, setItemStates] = useState({});
   const [itemNotes, setItemNotes] = useState({});
@@ -1736,7 +1956,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
   const handleSave = async () => {
     if (!allAnswered) return;
-    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: itemEvidence[it.id] || "" }));
+    const itemsRes = area.items.map((it) => ({ itemId: it.id, texto: it.texto, estado: itemStates[it.id], observacion: itemNotes[it.id] || "", evidencia: normalizeEvidenceList(itemEvidence[it.id]) }));
     const eppRes = selectedPersonaIds.map((pid) => {
       const p = personas.find((x) => x.id === pid);
       return {
@@ -1789,7 +2009,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
     return (
       <div className="bg-white rounded-xl p-6 text-center mt-6">
         <Check size={40} className="mx-auto mb-2" color="#1E7A46" />
-        <h3 className="font-bold text-lg" style={{ fontFamily: "Oswald, sans-serif" }}>Inspección guardada</h3>
+        <h3 className="font-bold text-lg" style={{ fontFamily: "inherit" }}>Inspección guardada</h3>
         <p className="text-sm text-gray-500 mt-1">El registro quedó guardado correctamente.</p>
         <button onClick={() => resetForm(areas[0]?.id || "")} className="mt-4 px-5 py-2 rounded-md font-bold text-white" style={{ background: primary }}>
           Nueva inspección
@@ -1815,7 +2035,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
       {area && (
         <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
+          <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "inherit" }}>
             <ListChecks size={16} /> Puntos de verificación
           </h3>
           <div className="space-y-3">
@@ -1830,7 +2050,7 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
       )}
 
       <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
+        <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5" style={{ fontFamily: "inherit" }}>
           <ShieldCheck size={16} /> Evaluación de EPP del personal
         </h3>
         {personas.length === 0 ? (
@@ -1892,13 +2112,30 @@ function InspeccionView({ areas, eppItems, personas, currentUser, accent, primar
 
 /* ---------------------------------- historial ---------------------------------- */
 
-function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascadeHallazgos }) {
+function HistorialView({ inspecciones, areas, primary, config, onUpdate, onDeleteCascadeHallazgos }) {
   const [filtroArea, setFiltroArea] = useState("todas");
+  const [expandedDay, setExpandedDay] = useState("");
   const [detalle, setDetalle] = useState(null);
   const [editando, setEditando] = useState(false);
   const [draft, setDraft] = useState(null);
 
-  const filtradas = inspecciones.filter((i) => filtroArea === "todas" || i.areaNombre === filtroArea);
+  const filtradas = inspecciones
+    .filter((i) => filtroArea === "todas" || i.areaNombre === filtroArea)
+    .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+  const agrupadasPorDia = useMemo(() => {
+    const map = {};
+    filtradas.forEach((i) => {
+      const key = dayKey(i.fecha);
+      if (!map[key]) map[key] = [];
+      map[key].push(i);
+    });
+    return Object.entries(map).map(([key, items]) => ({
+      key,
+      fecha: items[0]?.fecha,
+      items,
+      promedio: Math.round(items.reduce((sum, i) => sum + (i.cumplimientoPct || 0), 0) / items.length),
+    }));
+  }, [filtradas]);
 
   const exportar = () => {
     const resumen = inspecciones.map((i) => ({
@@ -1943,12 +2180,12 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   };
 
   const imprimirDetalle = () => {
-    openPrintDocument(`Inspeccion - ${detalle.areaNombre}`, inspectionPrintHtml(detalle, primary));
+    openPrintDocument(`Inspeccion - ${detalle.areaNombre}`, inspectionPrintHtml(detalle, primary, config));
   };
   const compartirDetalle = async () => {
     await shareDocument({
       filename: `inspeccion-${(detalle.areaNombre || "area").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${new Date(detalle.fecha).toISOString().slice(0, 10)}.html`,
-      html: inspectionPrintHtml(detalle, primary),
+      html: inspectionPrintHtml(detalle, primary, config),
       title: `Inspección - ${detalle.areaNombre}`,
       text: `Inspección ${detalle.areaNombre}: ${detalle.cumplimientoPct}% de cumplimiento.`,
     });
@@ -1958,30 +2195,52 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
   };
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center">
-        <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)} className="border rounded-md px-3 py-2 text-sm flex-1">
+    <div className="quality-history-shell">
+      <div className="quality-history-toolbar">
+        <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value)}>
           <option value="todas">Todas las áreas</option>
           {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
         </select>
-        <button onClick={exportar} className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-bold border" style={{ borderColor: primary, color: primary }}>
+        <button onClick={exportar} style={{ borderColor: primary, color: primary }}>
           <Download size={15} /> Exportar Excel
         </button>
       </div>
 
-      {filtradas.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin registros todavía.</p>}
+      {filtradas.length === 0 && <div className="quality-history-empty">Sin registros todavía.</div>}
 
-      <div className="space-y-2">
-        {filtradas.map((i) => {
-          const st = i.cumplimientoPct >= 90 ? STATUS[0] : i.cumplimientoPct >= 70 ? STATUS[1] : STATUS[2];
+      <div className="quality-history-days">
+        {agrupadasPorDia.map((grupo) => {
+          const st = grupo.promedio >= 90 ? STATUS[0] : grupo.promedio >= 70 ? STATUS[1] : STATUS[2];
+          const open = expandedDay === grupo.key;
           return (
-            <button key={i.id} onClick={() => setDetalle(i)} className="w-full bg-white rounded-lg p-3 flex items-center justify-between text-left">
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{i.areaNombre}</p>
-                <p className="text-xs text-gray-400">{fmtFecha(i.fecha)} · {i.inspector}</p>
-              </div>
-              <Badge color={st.color} bg={st.bg}>{i.cumplimientoPct}%</Badge>
-            </button>
+            <div key={grupo.key} className="quality-history-day-card">
+              <button onClick={() => setExpandedDay(open ? "" : grupo.key)} className="quality-history-day-header">
+                <div>
+                  <p>{fmtSoloFecha(grupo.fecha)}</p>
+                  <span>{grupo.items.length} inspección(es)</span>
+                </div>
+                <div className="quality-history-day-meta">
+                  <Badge color={st.color} bg={st.bg}>{grupo.promedio}%</Badge>
+                  <ChevronRight size={16} className={`text-gray-400 transition-transform ${open ? "rotate-90" : ""}`} />
+                </div>
+              </button>
+              {open && (
+                <div className="quality-history-record-grid">
+                  {grupo.items.map((i) => {
+                    const itemStatus = i.cumplimientoPct >= 90 ? STATUS[0] : i.cumplimientoPct >= 70 ? STATUS[1] : STATUS[2];
+                    return (
+                      <button key={i.id} onClick={() => setDetalle(i)} className="quality-history-record">
+                        <div>
+                          <p>{i.tipo === "epp" ? "EPP" : i.areaNombre}</p>
+                          <span>{new Date(i.fecha).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })} · {i.inspector}</span>
+                        </div>
+                        <Badge color={itemStatus.color} bg={itemStatus.bg}>{i.cumplimientoPct}%</Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -2012,13 +2271,18 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
                 ) : (
                   <Badge color={statusInfo(it.estado).color} bg={statusInfo(it.estado).bg}>{statusInfo(it.estado).label}</Badge>
                 )}
+                {!editando && normalizeEvidenceList(it.evidencia).length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-2">
+                    {normalizeEvidenceList(it.evidencia).map((src, index) => <img key={index} src={src} alt="" className="h-16 w-full object-cover rounded-md border" />)}
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
           {detalle.epp && detalle.epp.length > 0 && (
             <div className="mt-4">
-              <h4 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>EPP evaluado</h4>
+              <h4 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>EPP evaluado</h4>
               {detalle.epp.map((pe) => (
                 <div key={pe.personaId} className="mb-2">
                   <p className="text-xs font-bold text-gray-600">{pe.personaNombre}</p>
@@ -2034,21 +2298,21 @@ function HistorialView({ inspecciones, areas, primary, onUpdate, onDeleteCascade
 
           {detalle.observaciones && (
             <div className="mt-3">
-              <h4 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Observaciones</h4>
+              <h4 className="font-bold text-sm" style={{ fontFamily: "inherit" }}>Observaciones</h4>
               <p className="text-sm text-gray-600">{detalle.observaciones}</p>
             </div>
           )}
 
           {detalle.evidencias?.length > 0 && (
             <div className="mt-3">
-              <h4 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Registro fotografico</h4>
+              <h4 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Registro fotografico</h4>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 {detalle.evidencias.map((src, index) => <img key={index} src={src} alt="" className="h-20 w-full object-cover rounded-md border" />)}
               </div>
             </div>
           )}
 
-          <div className="grid sm:grid-cols-2 gap-3 mt-3">
+          <div className="signature-grid" style={{ "--signature-columns": 2, marginTop: 12 }}>
             <SignaturePad label="Firma inspector" value={detalle.firmaInspector || ""} onChange={(v) => setDetalle({ ...detalle, firmaInspector: v })} />
             <SignaturePad label="Firma responsable" value={detalle.firmaResponsable || ""} onChange={(v) => setDetalle({ ...detalle, firmaResponsable: v })} />
           </div>
@@ -2096,24 +2360,40 @@ function QualityKpiCard({ label, value, detail, tone = "neutral", progress = 0 }
   const t = tones[tone] || tones.neutral;
   const clamped = Math.max(0, Math.min(100, Number(progress) || 0));
   return (
-    <div className="rounded-xl p-3 text-center border border-gray-100 grid grid-cols-[72px_1fr] gap-2 items-center" style={{ background: t.bg }}>
-      <div className="relative w-[72px] h-[72px] rounded-full flex items-center justify-center mx-auto" style={{ background: `conic-gradient(${t.color} ${clamped * 3.6}deg, #FFFFFF ${clamped * 3.6}deg)` }}>
-        <div className="w-[54px] h-[54px] rounded-full bg-white flex items-center justify-center border border-white">
-          <span className="text-sm font-black leading-none" style={{ color: t.color }}>{value}</span>
+    <div style={{ background: t.bg, border: "1px solid #EEF1F4", borderRadius: 14, padding: 10, display: "grid", gridTemplateColumns: "68px minmax(0, 1fr)", gap: 10, alignItems: "center", textAlign: "center", boxSizing: "border-box" }}>
+      <div style={{ width: 68, height: 68, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto", background: `conic-gradient(${t.color} ${clamped * 3.6}deg, #FFFFFF ${clamped * 3.6}deg)` }}>
+        <div style={{ width: 52, height: 52, borderRadius: 999, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ color: t.color, fontSize: 15, lineHeight: 1, fontWeight: 900 }}>{value}</span>
         </div>
       </div>
       <div>
-        <p className="text-[10px] text-gray-500 uppercase font-black leading-tight">{label}</p>
-        <div className="h-1.5 rounded-full bg-white/80 overflow-hidden mt-2 border border-white">
-          <div className="h-full rounded-full" style={{ width: `${clamped}%`, background: t.color }} />
+        <p style={{ margin: 0, color: "#667085", fontSize: 11, lineHeight: 1.15, fontWeight: 900, textTransform: "uppercase" }}>{label}</p>
+        <div style={{ height: 7, borderRadius: 999, background: "rgba(255,255,255,0.85)", overflow: "hidden", marginTop: 8, border: "1px solid #fff" }}>
+          <div style={{ height: "100%", width: `${clamped}%`, background: t.color, borderRadius: 999 }} />
         </div>
-        {detail && <p className="text-[11px] text-gray-500 mt-2 leading-tight">{detail}</p>}
+        {detail && <p style={{ margin: "7px 0 0", color: "#667085", fontSize: 11, lineHeight: 1.15 }}>{detail}</p>}
       </div>
     </div>
   );
 }
 
 function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, accent }) {
+  const [periodo, setPeriodo] = useState("global");
+  const periodLabel = { dia: "Hoy", mes: "Mes", ano: "Año", global: "Global" };
+  const inPeriod = (iso) => {
+    if (periodo === "global") return true;
+    const now = new Date();
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return false;
+    if (periodo === "dia") return dayKey(date) === dayKey(now);
+    if (periodo === "mes") return monthKey(date) === monthKey(now);
+    if (periodo === "ano") return yearKey(date) === yearKey(now);
+    return true;
+  };
+  inspecciones = inspecciones.filter((i) => inPeriod(i.fecha));
+  hallazgos = hallazgos.filter((h) => inPeriod(h.fecha));
+  desviaciones = desviaciones.filter((d) => inPeriod(d.fecha));
+
   const promedioGeneral = useMemo(() => {
     if (!inspecciones.length) return 0;
     return Math.round(inspecciones.reduce((a, i) => a + i.cumplimientoPct, 0) / inspecciones.length);
@@ -2144,8 +2424,8 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
   const promedioEpp = inspeccionesEpp.length ? Math.round(inspeccionesEpp.reduce((sum, i) => sum + (i.cumplimientoPct || 0), 0) / inspeccionesEpp.length) : 0;
   const conEvidencia = inspecciones.filter((i) => {
     const general = (i.evidencias || []).length > 0;
-    const itemEvidence = (i.items || []).some((item) => item.evidencia);
-    const eppEvidence = (i.epp || []).some((group) => (group.items || []).some((item) => item.evidencia));
+    const itemEvidence = (i.items || []).some((item) => normalizeEvidenceList(item.evidencia).length > 0);
+    const eppEvidence = (i.epp || []).some((group) => (group.items || []).some((item) => normalizeEvidenceList(item.evidencia).length > 0));
     return general || itemEvidence || eppEvidence;
   }).length;
   const evidenciaPct = inspecciones.length ? Math.round((conEvidencia / inspecciones.length) * 100) : 0;
@@ -2172,35 +2452,103 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
     { nombre: "Areas criticas", valor: areaCriticas },
     { nombre: "Desviaciones abiertas", valor: desviacionesAbiertas },
   ];
+  const compliancePie = [
+    { name: "Cumplimiento", value: promedioGeneral, color: primary },
+    { name: "Brecha", value: Math.max(0, 100 - promedioGeneral), color: "#E5E7EB" },
+  ];
+  const findingsPie = [
+    { name: "Cerrados", value: cerrados, color: "#1E7A46" },
+    { name: "Abiertos", value: abiertos, color: "#B5333D" },
+  ].filter((item) => item.value > 0);
+  const evidencePie = [
+    { name: "Con evidencia", value: conEvidencia, color: accent },
+    { name: "Sin evidencia", value: Math.max(0, inspecciones.length - conEvidencia), color: "#CBD5E1" },
+  ].filter((item) => item.value > 0);
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-4 grid sm:grid-cols-[180px_1fr] gap-4 items-center">
-        <div className="flex justify-center">
-          <StampGauge pct={promedioGeneral} size={156} />
+    <div className="analysis-shell">
+      <div className="analysis-toolbar">
+        <div>
+          <h3 className="font-black text-base text-gray-800" style={{ fontFamily: "inherit" }}>Análisis de calidad</h3>
+          <p className="text-xs text-gray-400">Vista: {periodLabel[periodo]}</p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-            <p className="text-xl font-black" style={{ color: primary }}>{inspecciones.length}</p>
-            <p className="text-[10px] text-gray-400 uppercase font-bold">Inspecciones</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-            <p className="text-xl font-black" style={{ color: "#B5333D" }}>{abiertos}</p>
-            <p className="text-[10px] text-gray-400 uppercase font-bold">Hallazgos abiertos</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 text-center col-span-2">
-            <p className="text-xl font-black" style={{ color: "#1E7A46" }}>{cerrados}</p>
-            <p className="text-[10px] text-gray-400 uppercase font-bold">Hallazgos cerrados</p>
-          </div>
+        <div className="analysis-periods">
+          {["dia", "mes", "ano", "global"].map((option) => (
+            <button
+              key={option}
+              onClick={() => setPeriodo(option)}
+              className="px-2 py-2 text-xs font-black border-r last:border-r-0"
+              style={{ background: periodo === option ? primary : "#fff", color: periodo === option ? "#fff" : "#4B5563" }}
+            >
+              {periodLabel[option]}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-3" style={{ fontFamily: "Oswald, sans-serif" }}>KPI de calidad</h3>
-        <div className="grid lg:grid-cols-2 gap-3 mb-3">
-          <div className="rounded-xl border border-gray-100 p-2">
-            <p className="text-[11px] font-black text-gray-400 uppercase mb-2">Desempeno porcentual</p>
-            <ResponsiveContainer width="100%" height={220}>
+      <div className="analysis-card">
+        <div className="analysis-summary-grid">
+          <div className="analysis-summary-card">
+            <strong style={{ color: primary }}>{inspecciones.length}</strong>
+            <span>Inspecciones</span>
+          </div>
+          <div className="analysis-summary-card">
+            <strong style={{ color: "#B5333D" }}>{abiertos}</strong>
+            <span>Abiertos</span>
+          </div>
+          <div className="analysis-summary-card">
+            <strong style={{ color: "#1E7A46" }}>{cerrados}</strong>
+            <span>Cerrados</span>
+          </div>
+          <div className="analysis-summary-card">
+            <strong style={{ color: accent }}>{evidenciaPct}%</strong>
+            <span>Evidencia</span>
+          </div>
+        </div>
+
+        <div className="analysis-chart-grid" style={{ marginTop: 12 }}>
+          <div className="chart-card" style={{ textAlign: "center" }}>
+            <p className="chart-card-title">Cumplimiento</p>
+            <ResponsiveContainer width="100%" height={190}>
+              <PieChart>
+                <Pie data={compliancePie} dataKey="value" nameKey="name" innerRadius={48} outerRadius={70} startAngle={90} endAngle={-270}>
+                  {compliancePie.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                </Pie>
+                <Tooltip formatter={(value) => [`${value}%`, ""]} />
+              </PieChart>
+            </ResponsiveContainer>
+            <p className="text-3xl font-black -mt-20 mb-12 pointer-events-none" style={{ color: primary }}>{promedioGeneral}%</p>
+          </div>
+          <div className="chart-card">
+            <p className="chart-card-title">Hallazgos</p>
+            <ResponsiveContainer width="100%" height={190}>
+              <PieChart>
+                <Pie data={findingsPie.length ? findingsPie : [{ name: "Sin hallazgos", value: 1, color: "#E5E7EB" }]} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68}>
+                  {(findingsPie.length ? findingsPie : [{ name: "Sin hallazgos", value: 1, color: "#E5E7EB" }]).map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                </Pie>
+                <Tooltip />
+                <Legend verticalAlign="bottom" height={28} iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-card">
+            <p className="chart-card-title">Evidencia</p>
+            <ResponsiveContainer width="100%" height={190}>
+              <PieChart>
+                <Pie data={evidencePie.length ? evidencePie : [{ name: "Sin registros", value: 1, color: "#E5E7EB" }]} dataKey="value" nameKey="name" innerRadius={42} outerRadius={68}>
+                  {(evidencePie.length ? evidencePie : [{ name: "Sin registros", value: 1, color: "#E5E7EB" }]).map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                </Pie>
+                <Tooltip />
+                <Legend verticalAlign="bottom" height={28} iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="analysis-wide-grid" style={{ marginTop: 12 }}>
+          <div className="chart-card">
+            <p className="chart-card-title">Desempeño porcentual</p>
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart data={kpiChartData} margin={{ top: 8, right: 14, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="nombre" tick={{ fontSize: 10 }} />
@@ -2210,9 +2558,9 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="rounded-xl border border-gray-100 p-2">
-            <p className="text-[11px] font-black text-gray-400 uppercase mb-2">Riesgos abiertos</p>
-            <ResponsiveContainer width="100%" height={220}>
+          <div className="chart-card">
+            <p className="chart-card-title">Riesgos abiertos</p>
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart data={riskChartData} layout="vertical" margin={{ top: 8, right: 16, left: 24, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
@@ -2223,7 +2571,7 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="hidden">
+        <div className="quality-kpi-grid" style={{ marginTop: 12 }}>
           <QualityKpiCard label="Tasa de cierre" value={`${cierrePct}%`} progress={cierrePct} detail={`${cerrados}/${totalHallazgos || 0} hallazgos`} tone={cierrePct >= 85 ? "good" : cierrePct >= 60 ? "warn" : "bad"} />
           <QualityKpiCard label="Hallazgos por inspección" value={hallazgosPorInspeccion} progress={Math.max(0, 100 - Number(hallazgosPorInspeccion) * 30)} detail="Menor es mejor" tone={Number(hallazgosPorInspeccion) <= 1 ? "good" : Number(hallazgosPorInspeccion) <= 2 ? "warn" : "bad"} />
           <QualityKpiCard label="Evidencia documentada" value={`${evidenciaPct}%`} progress={evidenciaPct} detail={`${conEvidencia}/${inspecciones.length || 0} registros`} tone={evidenciaPct >= 80 ? "good" : evidenciaPct >= 50 ? "warn" : "bad"} />
@@ -2235,33 +2583,37 @@ function AnalisisView({ inspecciones, hallazgos, desviaciones = [], primary, acc
         </div>
       </div>
 
-      {porArea.length > 0 && (
-        <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Cumplimiento promedio por área</h3>
-          <ResponsiveContainer width="100%" height={Math.max(180, porArea.length * 34)}>
-            <BarChart data={porArea} layout="vertical" margin={{ left: 10, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <YAxis type="category" dataKey="nombre" width={130} tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="pct" radius={[0, 4, 4, 0]} fill={accent} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      {(porArea.length > 0 || tendencia.length > 1) && (
+        <div className="analysis-wide-grid">
+          {porArea.length > 0 && (
+            <div className="chart-card">
+              <h3 className="chart-card-title">Cumplimiento promedio por área</h3>
+              <ResponsiveContainer width="100%" height={Math.max(180, Math.min(320, porArea.length * 34))}>
+                <BarChart data={porArea} layout="vertical" margin={{ left: 10, right: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="nombre" width={130} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="pct" radius={[0, 4, 4, 0]} fill={accent} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
-      {tendencia.length > 1 && (
-        <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Tendencia de cumplimiento</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={tendencia}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="pct" stroke={primary} strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          {tendencia.length > 1 && (
+            <div className="chart-card">
+              <h3 className="chart-card-title">Tendencia de cumplimiento</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={tendencia}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="pct" stroke={primary} strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       )}
 
@@ -2324,10 +2676,16 @@ async function shareDocument({ filename, html, title, text }) {
 }
 
 function statusRowsHtml(items = []) {
+  const photos = (value) => {
+    const list = normalizeEvidenceList(value);
+    if (!list.length) return "Sin evidencia";
+    return `<div class="item-photos">${list.map((src) => `<img src="${src}" />`).join("")}</div>`;
+  };
   return items.map((it) => `
     <tr>
       <td>${escapeHtml(it.texto)}</td>
       <td>${escapeHtml(statusInfo(it.estado).label)}</td>
+      <td>${photos(it.evidencia)}</td>
     </tr>
   `).join("");
 }
@@ -2337,7 +2695,21 @@ function evidenceHtml(evidencias = []) {
   return `<div class="photos">${evidencias.map((src) => `<img src="${src}" />`).join("")}</div>`;
 }
 
-function checklistPrintHtml({ title, subtitle, items, primary }) {
+function printWatermarkCss() {
+  return `.print-watermark{position:fixed;left:50%;top:52%;width:520px;height:520px;object-fit:contain;transform:translate(-50%,-50%);opacity:.055;filter:grayscale(1) contrast(.75);z-index:-1;pointer-events:none}body{position:relative}.print-content{position:relative;z-index:1}`;
+}
+
+function printWatermarkHtml(config) {
+  return config?.logo && config?.watermarkLogo !== false ? `<img class="print-watermark" src="${config.logo}" />` : "";
+}
+
+function printFontFamily(config) {
+  return String(config?.fontFamily || "Inter, Arial, sans-serif").replace(/[<>{}]/g, "");
+}
+
+function checklistPrintHtml({ title, subtitle, items, primary, config }) {
+  const origin = config?.nombre || "ERP";
+  const font = printFontFamily(config);
   const rows = (items || []).map((it) => `
     <tr>
       <td>${escapeHtml(it.texto)}</td>
@@ -2351,24 +2723,31 @@ function checklistPrintHtml({ title, subtitle, items, primary }) {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
 <style>
-body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.35}
+body{font-family:${font};color:#1f2937;margin:28px;line-height:1.35}
 h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}p{margin:0 0 14px}
 table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #d1d5db;padding:8px;font-size:12px;vertical-align:top}th{background:#f3f4f6}.mark{width:70px;height:26px}
-.header{border-bottom:3px solid ${primary};padding-bottom:10px}.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}
+.header{border-bottom:3px solid ${primary};padding-bottom:10px}.origin{position:fixed;right:16px;top:12px;font-size:10px;color:#6b7280}.sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}
+${printWatermarkCss()}
 </style></head><body>
+${printWatermarkHtml(config)}
+<div class="print-content">
+<div class="origin">Creado por ${escapeHtml(origin)}</div>
 <div class="header"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div>
 <table><thead><tr><th>Item</th><th>Cumple</th><th>Parcial</th><th>No cumple</th><th>N/A</th><th>Observacion</th></tr></thead><tbody>${rows}</tbody></table>
 <div class="sign"><div class="line">Inspector</div><div class="line">Responsable</div></div>
+</div>
 </body></html>`;
 }
 
-function inspectionPrintHtml(inspeccion, primary) {
+function inspectionPrintHtml(inspeccion, primary, config) {
+  const origin = config?.nombre || "ERP";
+  const font = printFontFamily(config);
   const eppBlocks = (inspeccion.epp || []).map((pe) => `
     <div class="person">
       ${pe.foto ? `<img src="${pe.foto}" />` : ""}
       <div><h3>${escapeHtml(pe.personaNombre)}</h3><p>${escapeHtml(pe.rol || "")}</p></div>
     </div>
-    <table><thead><tr><th>Item EPP</th><th>Estado</th></tr></thead><tbody>${statusRowsHtml(pe.items)}</tbody></table>
+    <table><thead><tr><th>Item EPP</th><th>Estado</th><th>Evidencia</th></tr></thead><tbody>${statusRowsHtml(pe.items)}</tbody></table>
   `).join("");
   const signature = (src, label) => src
     ? `<div class="signed"><img src="${src}" /><p>${label}</p></div>`
@@ -2376,15 +2755,19 @@ function inspectionPrintHtml(inspeccion, primary) {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" /><title>Inspeccion ${escapeHtml(inspeccion.areaNombre)}</title>
 <style>
-body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+body{font-family:${font};color:#1f2937;margin:28px;line-height:1.4}
 h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}h3{margin:0;font-size:14px}
-.header{border-bottom:3px solid ${primary};padding-bottom:10px}.meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}.meta{display:grid;grid-template-columns:160px 1fr;gap:6px 14px}.label{font-weight:700;color:#4b5563}
+.header{border-bottom:3px solid ${primary};padding-bottom:10px}.origin{position:fixed;right:16px;top:12px;font-size:10px;color:#6b7280}.meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}.meta{display:grid;grid-template-columns:160px 1fr;gap:6px 14px}.label{font-weight:700;color:#4b5563}
 .score{font-size:34px;font-weight:800;color:${(inspeccion.cumplimientoPct || 0) >= 75 ? "#1E7A46" : "#B5333D"}}
 table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}
-.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}.person{display:flex;gap:10px;align-items:center;margin:12px 0 6px}.person img,.avatar{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin-right:10px;vertical-align:middle}
+.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}.item-photos{display:grid;grid-template-columns:repeat(3,58px);gap:6px}.item-photos img{width:58px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #ddd}.person{display:flex;gap:10px;align-items:center;margin:12px 0 6px}.person img,.avatar{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #ddd;margin-right:10px;vertical-align:middle}
 .sign{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:52px}.line{border-top:1px solid #111827;text-align:center;padding-top:8px}.signed{border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center}.signed img{width:100%;height:80px;object-fit:contain}.signed p{border-top:1px solid #111827;margin:8px 0 0;padding-top:6px}
+${printWatermarkCss()}
 </style></head><body>
-<div class="header"><h1>${inspeccion.tipo === "epp" ? "Verificacion EPP" : "Inspeccion de area"}</h1><p>Registro generado desde el ERP.</p></div>
+${printWatermarkHtml(config)}
+<div class="print-content">
+<div class="origin">Creado por ${escapeHtml(origin)}</div>
+<div class="header"><h1>${inspeccion.tipo === "epp" ? "Verificacion EPP" : "Inspeccion de area"}</h1><p>Registro generado desde ${escapeHtml(origin)}.</p></div>
 <div class="meta">
 <div class="label">Fecha</div><div>${escapeHtml(fmtFecha(inspeccion.fecha))}</div>
 <div class="label">Area</div><div>${escapeHtml(inspeccion.areaNombre || "")}</div>
@@ -2392,15 +2775,18 @@ table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid 
 <div class="label">Responsable</div><div>${inspeccion.responsableFoto ? `<img class="avatar" src="${inspeccion.responsableFoto}" />` : ""}${escapeHtml(inspeccion.responsableNombre || "")}</div>
 </div>
 <div class="box"><div class="score">${inspeccion.cumplimientoPct || 0}%</div><p>Cumplimiento registrado</p></div>
-${(inspeccion.items || []).length ? `<h2>Puntos de verificacion</h2><table><thead><tr><th>Item</th><th>Estado</th></tr></thead><tbody>${statusRowsHtml(inspeccion.items)}</tbody></table>` : ""}
+${(inspeccion.items || []).length ? `<h2>Puntos de verificacion</h2><table><thead><tr><th>Item</th><th>Estado</th><th>Evidencia</th></tr></thead><tbody>${statusRowsHtml(inspeccion.items)}</tbody></table>` : ""}
 ${eppBlocks ? `<h2>Lista de EPP</h2>${eppBlocks}` : ""}
 <h2>Observaciones</h2><div class="box">${escapeHtml(inspeccion.observaciones || "Sin observaciones.")}</div>
 <h2>Registro fotografico</h2>${evidenceHtml(inspeccion.evidencias)}
 <div class="sign">${signature(inspeccion.firmaInspector, "Inspector")}${signature(inspeccion.firmaResponsable, "Responsable")}</div>
+</div>
 </body></html>`;
 }
 
 function deviationPrintHtml(d, primary, config) {
+  const origin = config?.nombre || "ERP";
+  const font = printFontFamily(config);
   const photos = d.evidencias?.length
     ? `<div class="photos">${d.evidencias.map((src) => `<img src="${src}" />`).join("")}</div>`
     : '<div class="box">Sin evidencia fotografica.</div>';
@@ -2410,19 +2796,23 @@ function deviationPrintHtml(d, primary, config) {
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" /><title>${escapeHtml(d.codigo)}</title>
 <style>
-body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+body{font-family:${font};color:#1f2937;margin:28px;line-height:1.4}
 h1{font-size:22px;margin:0 0 4px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}
-.header{display:flex;align-items:center;gap:14px;border-bottom:3px solid ${primary};padding-bottom:12px}.logo{width:70px;height:70px;object-fit:contain}
+.origin{position:fixed;right:16px;top:12px;font-size:10px;color:#6b7280}.header{display:flex;align-items:center;gap:14px;border-bottom:3px solid ${primary};padding-bottom:12px}.logo{width:70px;height:70px;object-fit:contain}
 .meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}.meta{display:grid;grid-template-columns:170px 1fr;gap:6px 14px}.label{font-weight:700;color:#4b5563}
 .badge{display:inline-block;padding:4px 8px;border-radius:6px;background:#f3f4f6;font-weight:700}
 .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.photos img{width:100%;height:150px;object-fit:cover;border-radius:8px;border:1px solid #ddd}
 .signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px}.signature{border:1px solid #d1d5db;border-radius:8px;padding:8px;text-align:center;min-height:120px}.signature img{max-width:100%;height:80px;object-fit:contain}.signature p{border-top:1px solid #111827;margin:8px 0 0;padding-top:6px;font-size:12px}.empty{display:flex;align-items:end;justify-content:center}
 table{width:100%;border-collapse:collapse}td{border:1px solid #ddd;padding:7px;font-size:12px}
 @media print{body{margin:16mm}.photos img{height:130px}}
+${printWatermarkCss()}
 </style></head><body>
+${printWatermarkHtml(config)}
+<div class="print-content">
+<div class="origin">Creado por ${escapeHtml(origin)}</div>
 <div class="header">
   ${config?.logo ? `<img class="logo" src="${config.logo}" />` : ""}
-  <div><h1>Gestion de desviaciones y acciones correctivas</h1><p>${escapeHtml(d.codigo)} · Documento generado desde el ERP.</p></div>
+  <div><h1>Gestion de desviaciones y acciones correctivas</h1><p>${escapeHtml(d.codigo)} · Documento generado desde ${escapeHtml(origin)}.</p></div>
 </div>
 <div class="meta">
 <div class="label">Fecha y hora</div><div>${escapeHtml(fmtFecha(d.fecha))}</div>
@@ -2453,10 +2843,11 @@ ${signature(d.firmaSupervisor, "Supervisor")}
 ${signature(d.firmaResponsable, "Responsable del hallazgo")}
 ${signature(d.firmaCliente, "Cliente / representante")}
 </div>
+</div>
 </body></html>`;
 }
 
-function HallazgosView({ hallazgos, onUpdate, primary }) {
+function HallazgosView({ hallazgos, onUpdate, primary, config }) {
   const [filtro, setFiltro] = useState("todos");
   const [editId, setEditId] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -2497,6 +2888,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
 
   const buildLlamado = (h, total, registro) => {
     const responsable = h.responsable || "Sin responsable asignado";
+    const font = printFontFamily(config);
     const fecha = new Date(registro.fecha).toLocaleDateString("es-CO", { year: "numeric", month: "long", day: "2-digit" });
     const signature = (src, label) => src
       ? `<div class="firma signed"><img src="${src}" /><p>${label}</p></div>`
@@ -2507,7 +2899,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   <meta charset="utf-8" />
   <title>Llamado de atención - ${escapeHtml(responsable)}</title>
   <style>
-    body { font-family: Arial, sans-serif; color: #1f2937; margin: 32px; line-height: 1.45; }
+    body { font-family: ${font}; color: #1f2937; margin: 32px; line-height: 1.45; }
     .header { border-bottom: 3px solid ${primary}; padding-bottom: 12px; margin-bottom: 24px; }
     h1 { margin: 0; font-size: 24px; text-transform: uppercase; }
     h2 { font-size: 16px; margin: 24px 0 8px; }
@@ -2521,12 +2913,15 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
     .signed img { width: 100%; height: 70px; object-fit: contain; }
     .signed p { border-top: 1px solid #111827; margin: 6px 0 0; padding-top: 5px; }
     @media print { body { margin: 18mm; } }
+    ${printWatermarkCss()}
   </style>
 </head>
 <body>
+  ${printWatermarkHtml(config)}
+  <div class="print-content">
   <div class="header">
     <h1>Llamado de atención</h1>
-    <p>Documento generado desde el ERP de calidad e inspecciones.</p>
+    <p>Documento generado desde ${escapeHtml(config?.nombre || "ERP de calidad e inspecciones")}.</p>
   </div>
   <div class="box grid">
     <div class="label">Fecha</div><div>${escapeHtml(fecha)}</div>
@@ -2544,6 +2939,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
   <div class="firmas">
     ${signature(h.firmaResponsable, "Responsable")}
     ${signature(h.firmaSupervisor, "Administrador / Inspector")}
+  </div>
   </div>
 </body>
 </html>`;
@@ -2567,78 +2963,74 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
     });
   };
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 border" style={{ borderColor: recurrentes ? "#F2C94C" : "#E5E7EB" }}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div>
-            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Llamados de atención</h3>
-            <p className="text-xs text-gray-500">
+    <div className="attention-shell">
+      <div className="attention-header" style={{ borderColor: recurrentes ? "#F2C94C" : "#E5E7EB" }}>
+        <div>
+          <h3>Llamados de atención</h3>
+          <p>
               Se habilitan desde cada hallazgo. El sistema marca como repetitivo cuando el mismo responsable repite el mismo incumplimiento 2 o más veces.
-            </p>
-          </div>
-          <Badge color={recurrentes ? "#B4750E" : "#1E7A46"} bg={recurrentes ? "#FCF1DC" : "#E4F4EA"}>
-            {recurrentes} repetitivo(s)
-          </Badge>
+          </p>
         </div>
+        <Badge color={recurrentes ? "#B4750E" : "#1E7A46"} bg={recurrentes ? "#FCF1DC" : "#E4F4EA"}>
+          {recurrentes} repetitivo(s)
+        </Badge>
       </div>
 
-      <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto">
+      <div className="attention-filters">
         {["todos", ...ESTADOS_HALLAZGO.map((e) => e.value)].map((f) => (
           <button key={f} onClick={() => setFiltro(f)}
-            className="px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap"
             style={{ background: filtro === f ? primary : "#F1F3F4", color: filtro === f ? "#fff" : "#5C6673" }}>
             {f === "todos" ? "Todos" : ESTADOS_HALLAZGO.find((e) => e.value === f).label}
           </button>
         ))}
       </div>
 
-      {filtrados.length === 0 && <p className="text-center text-sm text-gray-400 py-8">No hay hallazgos en este filtro.</p>}
+      {filtrados.length === 0 && <div className="attention-empty">No hay hallazgos en este filtro.</div>}
 
-      <div className="space-y-2">
+      <div className="attention-grid">
         {filtrados.map((h) => {
           const st = ESTADOS_HALLAZGO.find((e) => e.value === h.estado);
           const editing = editId === h.id;
           const totalRecurrencias = recurrencias[hallazgoKey(h)] || 1;
           const puedeLlamado = totalRecurrencias >= 2 || h.estado !== "cerrado";
           return (
-            <div key={h.id} className="bg-white rounded-lg p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">{h.descripcion}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{h.area} · {fmtFecha(h.fecha)}</p>
+            <div key={h.id} className="attention-card">
+              <div className="attention-card-top">
+                <div>
+                  <p>{h.descripcion}</p>
+                  <span>{h.area} · {fmtFecha(h.fecha)}</span>
                 </div>
                 <Badge color={st.color} bg={st.bg}>{st.label}</Badge>
               </div>
 
               {editing ? (
-                <div className="mt-2 space-y-2">
-                  <select value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm">
+                <div className="attention-edit-form">
+                  <select value={draft.estado} onChange={(e) => setDraft({ ...draft, estado: e.target.value })}>
                     {ESTADOS_HALLAZGO.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
                   </select>
-                  <input value={draft.responsable} onChange={(e) => setDraft({ ...draft, responsable: e.target.value })} placeholder="Responsable" className="w-full border rounded-md px-2 py-1.5 text-sm" />
-                  <input type="date" value={draft.fechaCompromiso} onChange={(e) => setDraft({ ...draft, fechaCompromiso: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm" />
-                  <textarea value={draft.notas} onChange={(e) => setDraft({ ...draft, notas: e.target.value })} placeholder="Notas de seguimiento" rows={2} className="w-full border rounded-md px-2 py-1.5 text-sm" />
-                  <button onClick={guardar} className="w-full py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>Guardar</button>
+                  <input value={draft.responsable} onChange={(e) => setDraft({ ...draft, responsable: e.target.value })} placeholder="Responsable" />
+                  <input type="date" value={draft.fechaCompromiso} onChange={(e) => setDraft({ ...draft, fechaCompromiso: e.target.value })} />
+                  <textarea value={draft.notas} onChange={(e) => setDraft({ ...draft, notas: e.target.value })} placeholder="Notas de seguimiento" rows={2} />
+                  <button onClick={guardar} style={{ background: primary }}>Guardar</button>
                 </div>
               ) : (
-                <div className="mt-2 space-y-2">
-                  <p className="text-xs text-gray-500">
-                    {h.responsable ? `Responsable: ${h.responsable}` : "Sin responsable asignado"}
-                    {h.fechaCompromiso ? ` · Compromiso: ${h.fechaCompromiso}` : ""}
-                    {totalRecurrencias >= 2 ? ` · Repetido ${totalRecurrencias} veces` : ""}
-                    {h.llamadoAtencion ? ` · Llamado generado` : ""}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <button onClick={() => startEdit(h)} className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                <div className="attention-card-body">
+                  <div className="attention-meta-grid">
+                    <span><b>Responsable</b>{h.responsable || "Sin responsable asignado"}</span>
+                    <span><b>Compromiso</b>{h.fechaCompromiso || "Pendiente"}</span>
+                    <span><b>Repetición</b>{totalRecurrencias >= 2 ? `${totalRecurrencias} veces` : "Sin repetición"}</span>
+                    <span><b>Llamado</b>{h.llamadoAtencion ? "Generado" : "Pendiente"}</span>
+                  </div>
+                  <div className="attention-actions">
+                    <button onClick={() => startEdit(h)} style={{ color: primary, borderColor: primary }}>
                       <Pencil size={12} /> Editar
                     </button>
-                    <button onClick={() => setFirmaTarget({ ...h })} className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
+                    <button onClick={() => setFirmaTarget({ ...h })} style={{ color: primary, borderColor: primary }}>
                       <FileText size={12} /> Firmas
                     </button>
                     <button
                       disabled={!puedeLlamado}
                       onClick={() => descargarLlamado(h, totalRecurrencias)}
-                      className="px-3 py-2 rounded-md text-xs font-bold border flex items-center gap-1 disabled:opacity-40"
                       style={{ color: "#B5333D", borderColor: "#F0B8BD", background: "#FFF7F7" }}
                     >
                       <Download size={12} /> Descargar llamado
@@ -2646,8 +3038,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
                     <button
                       disabled={!puedeLlamado}
                       onClick={() => enviarLlamado(h, totalRecurrencias)}
-                      className="px-3 py-2 rounded-md text-xs font-bold text-white flex items-center gap-1 disabled:opacity-40"
-                      style={{ background: "#B5333D" }}
+                      style={{ background: "#B5333D", color: "#fff", borderColor: "#B5333D" }}
                     >
                       <AlertTriangle size={12} /> Enviar
                     </button>
@@ -2660,7 +3051,7 @@ function HallazgosView({ hallazgos, onUpdate, primary }) {
       </div>
       {firmaTarget && (
         <Modal title={`Firmas · ${firmaTarget.responsable || "hallazgo"}`} onClose={() => setFirmaTarget(null)} wide>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="signature-grid" style={{ "--signature-columns": 2 }}>
             <SignaturePad label="Firma responsable" value={firmaTarget.firmaResponsable || ""} onChange={(v) => setFirmaTarget({ ...firmaTarget, firmaResponsable: v })} />
             <SignaturePad label="Firma supervisor / inspector" value={firmaTarget.firmaSupervisor || ""} onChange={(v) => setFirmaTarget({ ...firmaTarget, firmaSupervisor: v })} />
           </div>
@@ -2711,10 +3102,12 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [nombre, setNombre] = useState(config.nombre);
   const [colorPrimario, setColorPrimario] = useState(config.colorPrimario);
   const [colorAccent, setColorAccent] = useState(config.colorAccent);
+  const [textColor, setTextColor] = useState(config.textColor || "#243040");
   const [logo, setLogo] = useState(config.logo);
   const [fontScale, setFontScale] = useState(config.fontScale || 112);
   const [fontFamily, setFontFamily] = useState(config.fontFamily || "Inter, sans-serif");
   const [watermarkLogo, setWatermarkLogo] = useState(config.watermarkLogo !== false);
+  const [moduleLogos, setModuleLogos] = useState(config.moduleLogos || {});
   const [inactiveStatsMonths, setInactiveStatsMonths] = useState(config.inactiveStatsMonths || 6);
   const [appBackground, setAppBackground] = useState(config.appBackground || "#F1F3F4");
   const [cellBackground, setCellBackground] = useState(config.cellBackground || "#FFFFFF");
@@ -2722,15 +3115,30 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [fieldPaddingY, setFieldPaddingY] = useState(config.fieldPaddingY || 9);
   const [logoError, setLogoError] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
+  const palettes = [
+    { id: "institucional", label: "Institucional", primary: "#1F2B3A", accent: "#F2622E", text: "#243040", page: "#F1F3F4", cell: "#FFFFFF" },
+    { id: "verde", label: "Calidad", primary: "#12372A", accent: "#1E7A46", text: "#20322A", page: "#EEF4F0", cell: "#FFFFFF" },
+    { id: "grafito", label: "Grafito", primary: "#20242B", accent: "#64748B", text: "#20242B", page: "#F4F5F7", cell: "#FFFFFF" },
+    { id: "azul", label: "Operativo", primary: "#17324D", accent: "#2563EB", text: "#1D2B3A", page: "#EFF5FF", cell: "#FFFFFF" },
+  ];
+  const applyPalette = (palette) => {
+    setColorPrimario(palette.primary);
+    setColorAccent(palette.accent);
+    setTextColor(palette.text);
+    setAppBackground(palette.page);
+    setCellBackground(palette.cell);
+  };
   const configPayload = (nextLogo = logo) => ({
     ...config,
     nombre,
     colorPrimario,
     colorAccent,
+    textColor,
     logo: nextLogo,
     fontScale,
     fontFamily,
     watermarkLogo,
+    moduleLogos,
     inactiveStatsMonths,
     appBackground,
     cellBackground,
@@ -2760,6 +3168,29 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     setLogoError("");
     await onConfig(configPayload(null));
   };
+  const handleModuleLogo = async (moduleId, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setLogoBusy(true);
+    setLogoError("");
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 220);
+      const next = { ...moduleLogos, [moduleId]: dataUrl };
+      setModuleLogos(next);
+      await onConfig({ ...configPayload(), moduleLogos: next });
+    } catch (err) {
+      setLogoError(err.message || "No se pudo cargar el logo del modulo.");
+    } finally {
+      setLogoBusy(false);
+      e.target.value = "";
+    }
+  };
+  const quitarModuleLogo = async (moduleId) => {
+    const next = { ...moduleLogos };
+    delete next[moduleId];
+    setModuleLogos(next);
+    await onConfig({ ...configPayload(), moduleLogos: next });
+  };
 
   const guardar = () => onConfig(configPayload());
   const descargarBackup = () => {
@@ -2776,54 +3207,138 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     a.click();
     URL.revokeObjectURL(url);
   };
+  const cleanTemplatePayload = ({ blankStandardization = true } = {}) => {
+    const cleanConfig = {
+      ...configPayload(),
+      nombre: nombre.trim() || config.nombre || "ERP Cocina Institucional",
+    };
+    return {
+      createdAt: todayISO(),
+      version: APP_VERSION,
+      template: "erp-limpio-base",
+      config: cleanConfig,
+      areas: backupData.areas || [],
+      eppItems: backupData.eppItems || [],
+      usuarios: [],
+      inspecciones: [],
+      hallazgos: [],
+      desviaciones: [],
+      hrColaboradores: [],
+      hrEvaluaciones: [],
+      hrPlanes: [],
+      hrCapacitaciones: [],
+      hrCertificaciones: [],
+      stdFamilias: blankStandardization ? [] : (backupData.stdFamilias?.length ? backupData.stdFamilias : DEFAULT_STD_DATA.familias),
+      stdInsumos: blankStandardization ? [] : (backupData.stdInsumos?.length ? backupData.stdInsumos : DEFAULT_STD_DATA.insumos),
+      stdRecetas: blankStandardization ? [] : (backupData.stdRecetas?.length ? backupData.stdRecetas : DEFAULT_STD_DATA.recetas),
+      stdPreparaciones: blankStandardization ? [] : (backupData.stdPreparaciones?.length ? backupData.stdPreparaciones : DEFAULT_STD_DATA.preparaciones),
+      stdMermas: [],
+    };
+  };
+  const descargarPlantillaLimpia = () => {
+    const payload = cleanTemplatePayload({ blankStandardization: true });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `plantilla-limpia-erp-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const reiniciarEsteEquipo = async () => {
+    const ok = confirm("Esto reinicia SOLO este navegador/tablet: conserva catalogos base, borra registros diligenciados y pedira crear usuario de nuevo. Otras tablets no se afectan. ¿Continuar?");
+    if (!ok) return;
+    const sure = confirm("Confirma de nuevo. Se descargara un backup antes de limpiar este equipo.");
+    if (!sure) return;
+    descargarBackup();
+    const payload = cleanTemplatePayload({ blankStandardization: false });
+    await Promise.all([
+      saveKey("qc_config", payload.config),
+      saveKey("qc_areas", payload.areas),
+      saveKey("qc_epp", payload.eppItems),
+      saveKey("qc_personas", []),
+      saveKey("qc_usuarios", []),
+      saveKey("qc_inspecciones", []),
+      saveKey("qc_hallazgos", []),
+      saveKey("qc_desviaciones", []),
+      saveKey("hr_colaboradores", []),
+      saveKey("hr_evaluaciones", []),
+      saveKey("hr_planes_mejora", []),
+      saveKey("hr_capacitaciones", []),
+      saveKey("hr_certificaciones", []),
+      saveKey("std_familias", payload.stdFamilias),
+      saveKey("std_insumos", payload.stdInsumos),
+      saveKey("std_recetas", payload.stdRecetas.map((receta) => ({ ...receta, foto: "" }))),
+      saveKey("std_preparaciones", payload.stdPreparaciones),
+      saveKey("std_mermas", []),
+      saveKey("erp_session_user", null),
+    ]);
+    window.location.reload();
+  };
 
   return (
-    <div className="bg-white rounded-xl p-3 space-y-3">
-      <div>
-        <label className="text-xs font-bold text-gray-500 uppercase">Nombre del checklist</label>
-        <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1" />
-      </div>
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Palette size={12} /> Color primario</label>
-          <input type="color" value={colorPrimario} onChange={(e) => setColorPrimario(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
+    <div className="admin-general-shell">
+      <div className="admin-card admin-card-wide">
+        <div className="admin-card-head">
+          <h3 style={{ fontFamily: "inherit" }}>Identidad visual</h3>
+          <Palette size={15} />
         </div>
-        <div className="flex-1">
-          <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><Palette size={12} /> Color de acento</label>
-          <input type="color" value={colorAccent} onChange={(e) => setColorAccent(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
-        </div>
-      </div>
-
-      <div className="grid sm:grid-cols-4 gap-3">
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Fondo general</label>
-          <input type="color" value={appBackground} onChange={(e) => setAppBackground(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Fondo de celdas</label>
-          <input type="color" value={cellBackground} onChange={(e) => setCellBackground(e.target.value)} className="w-full h-10 border rounded-md mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Borde</label>
-          <input type="range" min="1" max="3" value={fieldBorderWidth} onChange={(e) => setFieldBorderWidth(Number(e.target.value))} className="w-full mt-2" />
-          <p className="text-[11px] text-gray-400">{fieldBorderWidth}px</p>
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Alto de campos</label>
-          <input type="range" min="7" max="14" value={fieldPaddingY} onChange={(e) => setFieldPaddingY(Number(e.target.value))} className="w-full mt-2" />
-          <p className="text-[11px] text-gray-400">{fieldPaddingY}px</p>
+        <div className="admin-name-grid">
+          <label>
+            <span>Nombre del ERP</span>
+            <input value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </label>
+          <label className="admin-check-card">
+            <input type="checkbox" checked={watermarkLogo} onChange={(e) => setWatermarkLogo(e.target.checked)} />
+            <span>Marca de agua activa</span>
+          </label>
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Tamaño de letra</label>
-          <input type="range" min="100" max="180" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} className="w-full mt-2" />
-          <p className="text-[11px] text-gray-400">{fontScale}%</p>
-        </div>
-        <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Tipo de letra</label>
-          <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="w-full border rounded-md px-3 py-2 mt-1 text-sm">
+      <div className="erp-palette-presets admin-palettes">
+        {palettes.map((palette) => (
+          <button key={palette.id} type="button" onClick={() => applyPalette(palette)}>
+            <span className="erp-palette-swatch">
+              <i style={{ background: palette.primary }} />
+              <i style={{ background: palette.accent }} />
+              <i style={{ background: palette.page }} />
+            </span>
+            <strong>{palette.label}</strong>
+          </button>
+        ))}
+      </div>
+
+      <div className="admin-settings-grid">
+        <label className="admin-color-control">
+          <span>Primario</span>
+          <input type="color" value={colorPrimario} onChange={(e) => setColorPrimario(e.target.value)} />
+        </label>
+        <label className="admin-color-control">
+          <span>Acento</span>
+          <input type="color" value={colorAccent} onChange={(e) => setColorAccent(e.target.value)} />
+        </label>
+        <label className="admin-color-control">
+          <span>Letra</span>
+          <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} />
+        </label>
+        <label className="admin-color-control">
+          <span>Fondo ERP</span>
+          <input type="color" value={appBackground} onChange={(e) => setAppBackground(e.target.value)} />
+        </label>
+        <label className="admin-color-control">
+          <span>Campos</span>
+          <input type="color" value={cellBackground} onChange={(e) => setCellBackground(e.target.value)} />
+        </label>
+      </div>
+
+      <div className="admin-control-grid">
+        <label className="admin-range-control">
+          <span>Tamaño de letra <b>{fontScale}%</b></span>
+          <input type="range" min="100" max="190" value={fontScale} onChange={(e) => setFontScale(Number(e.target.value))} />
+        </label>
+        <label className="admin-select-control">
+          <span>Tipo de letra</span>
+          <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
             <option value="Inter, sans-serif">Inter</option>
             <option value="Arial, sans-serif">Arial</option>
             <option value="'Segoe UI', sans-serif">Segoe UI</option>
@@ -2831,50 +3346,96 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
             <option value="Verdana, sans-serif">Verdana</option>
             <option value="Tahoma, sans-serif">Tahoma</option>
             <option value="Georgia, serif">Georgia</option>
+            <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+            <option value="'Century Gothic', sans-serif">Century Gothic</option>
+            <option value="'Gill Sans', sans-serif">Gill Sans</option>
             <option value="system-ui, sans-serif">Sistema</option>
           </select>
-        </div>
-        <label className="flex items-center gap-2 text-sm font-semibold mt-5">
-          <input type="checkbox" checked={watermarkLogo} onChange={(e) => setWatermarkLogo(e.target.checked)} />
-          Logo como marca de agua
+        </label>
+        <label className="admin-range-control compact">
+          <span>Borde <b>{fieldBorderWidth}px</b></span>
+          <input type="range" min="1" max="3" value={fieldBorderWidth} onChange={(e) => setFieldBorderWidth(Number(e.target.value))} />
+        </label>
+        <label className="admin-range-control compact">
+          <span>Alto campos <b>{fieldPaddingY}px</b></span>
+          <input type="range" min="7" max="14" value={fieldPaddingY} onChange={(e) => setFieldPaddingY(Number(e.target.value))} />
+        </label>
+        <label className="admin-number-control">
+          <span>Inactivos en estadísticas</span>
+          <input type="number" min="0" max="60" value={inactiveStatsMonths} onChange={(e) => setInactiveStatsMonths(Number(e.target.value))} />
         </label>
       </div>
 
-      <div>
-        <label className="text-xs font-bold text-gray-500 uppercase">Meses para mantener inactivos en estadisticas</label>
-        <input type="number" min="0" max="60" value={inactiveStatsMonths} onChange={(e) => setInactiveStatsMonths(Number(e.target.value))} className="w-full border rounded-md px-3 py-2 mt-1 text-sm" />
-      </div>
-
-      <div className="bg-gray-50 rounded-lg p-3">
-        <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Backup de informacion</h3>
-        <p className="text-xs text-gray-500 mt-1">El ERP guarda un respaldo local automatico y tambien puedes descargar una copia JSON para proteger la informacion diligenciada.</p>
-        <button onClick={descargarBackup} className="mt-2 px-3 py-2 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>
-          Descargar backup
-        </button>
-      </div>
-
-      <div>
-        <label className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1"><ImagePlus size={12} /> Logo corporativo</label>
-        <div className="flex items-center gap-3 mt-1.5">
-          <div className="w-16 h-16 rounded-lg border border-dashed border-gray-300 flex items-center justify-center flex-shrink-0 overflow-hidden bg-gray-50">
-            {logo ? <img src={logo} className="w-full h-full object-contain" /> : <ImagePlus size={20} className="text-gray-300" />}
+      <div className="admin-assets-grid">
+        <div className="admin-card admin-card-wide">
+          <div className="admin-card-head">
+            <h3 style={{ fontFamily: "inherit" }}>Backup de informacion</h3>
+            <span>JSON</span>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="px-3 py-1.5 rounded-md text-xs font-bold border cursor-pointer inline-flex items-center gap-1.5 w-fit"
-              style={{ borderColor: primary, color: primary }}>
-              <ImagePlus size={13} /> {logoBusy ? "Cargando..." : "Subir imagen"}
+          <p>Descarga una copia completa o una plantilla limpia para compartir sin datos diligenciados.</p>
+          <div className="admin-action-row">
+            <button onClick={descargarBackup} style={{ borderColor: primary, color: primary }}>Backup</button>
+            <button onClick={descargarPlantillaLimpia} style={{ borderColor: primary, color: primary }}>Plantilla limpia</button>
+            <button onClick={reiniciarEsteEquipo} className="danger">Reiniciar equipo</button>
+          </div>
+          <small>La plantilla limpia no borra nada. El reinicio solo aplica al navegador actual y descarga un backup antes.</small>
+        </div>
+
+        <div className="admin-card">
+          <div className="admin-card-head">
+            <h3 style={{ fontFamily: "inherit" }}>Logo corporativo</h3>
+            <ImagePlus size={15} />
+          </div>
+          <div className="admin-logo-row">
+            <div className="admin-logo-preview">
+              {logo ? <img src={logo} /> : <ImagePlus size={22} />}
+            </div>
+            <label
+              className="file-icon-button admin-icon-upload"
+              title={logoBusy ? "Cargando imagen" : "Subir imagen"}
+              aria-label={logoBusy ? "Cargando imagen" : "Subir imagen"}
+              style={{ borderColor: primary, color: primary }}
+            >
+              <ImagePlus size={18} />
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogo} className="hidden" disabled={logoBusy} />
             </label>
             {logo && (
-              <button onClick={quitarLogo} className="px-3 py-1.5 rounded-md text-xs font-bold border border-red-200 text-red-600 w-fit">Quitar logo</button>
+              <button onClick={quitarLogo} className="admin-mini-danger">Quitar</button>
             )}
           </div>
+          <small>PNG, JPG, WEBP o SVG. Se ajusta automaticamente.</small>
+          {logoError && <small className="error">{logoError}</small>}
         </div>
-        <p className="text-[11px] text-gray-400 mt-1.5">Formatos: PNG, JPG, WEBP o SVG. Se ajusta automáticamente y se guarda al instante.</p>
-        {logoError && <p className="text-xs text-red-600 mt-1 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{logoError}</p>}
+
+        <div className="admin-card admin-card-wide">
+          <div className="admin-card-head">
+            <h3 style={{ fontFamily: "inherit" }}>Logos de modulos</h3>
+            <span>Accesos</span>
+          </div>
+          <div className="admin-module-logo-grid">
+          {[
+            ["calidad", "Calidad"],
+            ["talento", "Talento"],
+            ["cocina", "Fichas"],
+            ["admin", "Admin"],
+          ].map(([id, label]) => (
+            <div key={id} className="admin-module-logo-card">
+              <div className="admin-module-logo-preview">
+                {moduleLogos[id] ? <img src={moduleLogos[id]} /> : <ImagePlus size={18} />}
+              </div>
+              <strong>{label}</strong>
+              <label className="file-icon-button admin-icon-upload small" title={`Cambiar logo de ${label}`} aria-label={`Cambiar logo de ${label}`} style={{ borderColor: primary, color: primary }}>
+                <ImagePlus size={16} />
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(event) => handleModuleLogo(id, event)} className="hidden" disabled={logoBusy} />
+              </label>
+              {moduleLogos[id] && <button type="button" onClick={() => quitarModuleLogo(id)} className="admin-mini-danger">Quitar</button>}
+            </div>
+          ))}
+          </div>
+        </div>
       </div>
 
-      <button onClick={guardar} className="w-full py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2" style={{ background: primary }}>
+      <button onClick={guardar} className="admin-save-button" style={{ background: primary }}>
         <Save size={16} /> Guardar cambios
       </button>
     </div>
@@ -2885,8 +3446,7 @@ function AdminAreas({ areas, onAreas, primary }) {
   const [nuevaArea, setNuevaArea] = useState("");
   const [nuevoItem, setNuevoItem] = useState({});
   const [expand, setExpand] = useState(null);
-  const [editandoArea, setEditandoArea] = useState(null);
-const [editandoItem, setEditandoItem] = useState(null);
+  const [editandoItem, setEditandoItem] = useState(null);
 
   const agregarArea = () => {
     if (!nuevaArea.trim()) return;
@@ -2926,73 +3486,51 @@ const [editandoItem, setEditandoItem] = useState(null);
 };
 
   return (
-    <div className="space-y-2">
-      <div className="bg-white rounded-xl p-3 flex gap-2">
-        <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva área..." className="flex-1 border rounded-md px-3 py-2 text-sm" />
-        <button onClick={agregarArea} className="px-3 rounded-md font-bold text-white flex items-center gap-1" style={{ background: primary }}><Plus size={16} /></button>
+    <div className="admin-panel-shell">
+      <div className="admin-panel">
+        <div className="admin-panel-head">
+          <div>
+            <h3 style={{ fontFamily: "inherit" }}>Áreas de inspección</h3>
+            <p>{areas.length} área(s) configuradas · edita nombres e ítems desde cada fila</p>
+          </div>
+          <Badge color={primary} bg={`${primary}14`}>{areas.reduce((sum, a) => sum + a.items.length, 0)} ítems</Badge>
+        </div>
+        <div className="admin-create-row">
+          <input value={nuevaArea} onChange={(e) => setNuevaArea(e.target.value)} placeholder="Nueva área..." />
+          <button onClick={agregarArea} style={{ background: primary }}><Plus size={16} /> Agregar</button>
+        </div>
       </div>
 
-      {areas.map((a) => (
-        <div key={a.id} className="bg-white rounded-xl p-3">
-          <div className="flex items-center gap-2">
-            <input value={a.nombre} onChange={(e) => renombrarArea(a.id, e.target.value)} className="flex-1 font-bold text-sm border-b border-transparent focus:border-gray-300 outline-none py-1" />
-            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="text-xs font-bold" style={{ color: primary }}>{expand === a.id ? "Ocultar" : `${a.items.length} ítems`}</button>
-            <button onClick={() => eliminarArea(a.id)} className="text-red-500"><Trash2 size={16} /></button>
+      <div className="admin-list-grid">
+        {areas.map((a) => (
+        <div key={a.id} className="admin-list-card">
+          <div className="admin-list-row">
+            <input value={a.nombre} onChange={(e) => renombrarArea(a.id, e.target.value)} />
+            <button onClick={() => setExpand(expand === a.id ? null : a.id)} className="admin-pill-button" style={{ color: primary, borderColor: `${primary}55` }}>{expand === a.id ? "Ocultar" : `${a.items.length} ítems`}</button>
+            <button onClick={() => eliminarArea(a.id)} className="admin-icon-danger" title="Eliminar área" aria-label="Eliminar área"><Trash2 size={16} /></button>
           </div>
           {expand === a.id && (
-            <div className="mt-2 space-y-1.5">
+            <div className="admin-item-list">
               {a.items.map((it) => (
-  <div
-    key={it.id}
-    className="flex items-center gap-2 text-sm bg-gray-50 rounded-md px-2 py-1.5"
-  >
-
-    {editandoItem === it.id ? (
-
-      <input
-        autoFocus
-        value={it.texto}
-        onChange={(e) =>
-          renombrarItem(a.id, it.id, e.target.value)
-        }
-        className="flex-1 border rounded-md px-2 py-1"
-      />
-
-    ) : (
-
-      <span className="flex-1">{it.texto}</span>
-
-    )}
-
-    <button
-      onClick={() =>
-        setEditandoItem(
-          editandoItem === it.id ? null : it.id
-        )
-      }
-      className="text-blue-500"
-    >
-      <Pencil size={13} />
-    </button>
-
-    <button
-      onClick={() => eliminarItem(a.id, it.id)}
-      className="text-red-400"
-    >
-      <Trash2 size={13} />
-    </button>
-
-  </div>
-))}
-              <div className="flex gap-2">
-                <input value={nuevoItem[a.id] || ""} onChange={(e) => setNuevoItem((s) => ({ ...s, [a.id]: e.target.value }))}
-                  placeholder="Nuevo ítem..." className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
-                <button onClick={() => agregarItem(a.id)} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
+                <div key={it.id} className="admin-subitem-row">
+                  {editandoItem === it.id ? (
+                    <input autoFocus value={it.texto} onChange={(e) => renombrarItem(a.id, it.id, e.target.value)} />
+                  ) : (
+                    <span>{it.texto}</span>
+                  )}
+                  <button onClick={() => setEditandoItem(editandoItem === it.id ? null : it.id)} title="Editar ítem" aria-label="Editar ítem"><Pencil size={13} /></button>
+                  <button onClick={() => eliminarItem(a.id, it.id)} className="danger" title="Eliminar ítem" aria-label="Eliminar ítem"><Trash2 size={13} /></button>
+                </div>
+              ))}
+              <div className="admin-inline-create">
+                <input value={nuevoItem[a.id] || ""} onChange={(e) => setNuevoItem((s) => ({ ...s, [a.id]: e.target.value }))} placeholder="Nuevo ítem..." />
+                <button onClick={() => agregarItem(a.id)} style={{ background: primary }}><Plus size={14} /></button>
               </div>
             </div>
           )}
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -3008,16 +3546,29 @@ function AdminEpp({ eppItems, onEpp, primary }) {
   const editar = (id, texto) => onEpp(eppItems.map((i) => i.id === id ? { ...i, texto } : i));
 
   return (
-    <div className="bg-white rounded-xl p-3 space-y-1.5">
-      {eppItems.map((it) => (
-        <div key={it.id} className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1.5">
-          <input value={it.texto} onChange={(e) => editar(it.id, e.target.value)} className="flex-1 bg-transparent text-sm outline-none" />
-          <button onClick={() => eliminar(it.id)} className="text-red-400"><Trash2 size={14} /></button>
+    <div className="admin-panel-shell">
+      <div className="admin-panel">
+        <div className="admin-panel-head">
+          <div>
+            <h3 style={{ fontFamily: "inherit" }}>Verificación EPP</h3>
+            <p>Lista base para inspecciones de elementos de protección personal</p>
+          </div>
+          <Badge color={primary} bg={`${primary}14`}>{eppItems.length} ítems</Badge>
         </div>
-      ))}
-      <div className="flex gap-2 pt-1">
-        <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo ítem de EPP..." className="flex-1 border rounded-md px-2 py-1.5 text-sm" />
-        <button onClick={agregar} className="px-2.5 rounded-md text-white" style={{ background: primary }}><Plus size={14} /></button>
+        <div className="admin-create-row">
+          <input value={nuevo} onChange={(e) => setNuevo(e.target.value)} placeholder="Nuevo ítem de EPP..." />
+          <button onClick={agregar} style={{ background: primary }}><Plus size={16} /> Agregar</button>
+        </div>
+      </div>
+
+      <div className="admin-compact-list">
+        {eppItems.map((it, index) => (
+          <div key={it.id} className="admin-epp-row">
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <input value={it.texto} onChange={(e) => editar(it.id, e.target.value)} />
+            <button onClick={() => eliminar(it.id)} className="admin-icon-danger" title="Eliminar ítem" aria-label="Eliminar ítem"><Trash2 size={14} /></button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -3048,7 +3599,8 @@ function AreaCheckboxes({ areas, value, onChange, max = MAX_AREAS_POR_PERSONA })
   );
 }
 
-function AdminPersonas({ personas, areas, onPersonas, primary }) {
+// eslint-disable-next-line no-unused-vars
+function LegacyAdminPersonas({ personas, areas, onPersonas, primary }) {
   const [form, setForm] = useState({ nombre: "", rol: "", areas: [] });
   const [editId, setEditId] = useState(null);
 
@@ -3068,7 +3620,7 @@ function AdminPersonas({ personas, areas, onPersonas, primary }) {
   return (
     <div className="space-y-2">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><UserPlus size={15} /> Agregar personal</h3>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "inherit" }}><UserPlus size={15} /> Agregar personal</h3>
         <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="w-full border rounded-md px-3 py-2 text-sm" />
         <input value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} placeholder="Rol / puesto" className="w-full border rounded-md px-3 py-2 text-sm" />
         <div>
@@ -3153,48 +3705,56 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
   };
 
   return (
-    <div className="space-y-2">
-      <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}>
-          <UserPlus size={15} /> Agregar usuario ({usuarios.length}/{MAX_USUARIOS})
-        </h3>
-        <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Contraseña (mín. 4 caracteres)" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
+    <div className="admin-panel-shell">
+      <div className="admin-panel">
+        <div className="admin-panel-head">
+          <div>
+            <h3 style={{ fontFamily: "inherit" }}>Usuarios del ERP</h3>
+            <p>{usuarios.length}/{MAX_USUARIOS} accesos creados · conserva al menos un administrador</p>
+          </div>
+          <Badge color={primary} bg={`${primary}14`}>{admins.length} admin</Badge>
+        </div>
+        <div className="admin-user-create">
+          <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" />
+          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Contraseña" />
+          <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
           <option value="usuario">Usuario (solo hace inspecciones)</option>
           <option value="administrador">Administrador (acceso total)</option>
         </select>
         <button onClick={agregar} disabled={usuarios.length >= MAX_USUARIOS}
-          className="w-full py-2 rounded-md font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-40" style={{ background: primary }}>
+          style={{ background: primary }}>
           <Plus size={15} /> Agregar usuario
         </button>
-        {msg && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-2 py-1.5">{msg}</p>}
+        </div>
+        {msg && <p className="admin-message danger">{msg}</p>}
       </div>
 
-      {usuarios.map((u) => (
-        <div key={u.id} className="bg-white rounded-xl p-3">
+      <div className="admin-user-grid">
+        {usuarios.map((u) => (
+        <div key={u.id} className="admin-user-card">
           {editId === u.id ? (
             <UsuarioEditForm usuario={u} onSave={guardarEdicion} onCancel={() => setEditId(null)} primary={primary} />
           ) : (
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="font-semibold text-sm flex items-center gap-1.5">
+            <div className="admin-user-view">
+              <div>
+                <p>
                   {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tú)</span>}
                 </p>
                 <Badge color={u.rol === "administrador" ? "#1F2B3A" : "#5C6673"} bg={u.rol === "administrador" ? "#E9ECEF" : "#F1F3F4"}>
                   {u.rol === "administrador" ? "Administrador" : "Usuario"}
                 </Badge>
               </div>
-              <div className="flex gap-2 flex-shrink-0">
-                <button onClick={() => setEditId(u.id)} className="text-gray-500"><Pencil size={16} /></button>
-                <button onClick={() => eliminar(u)} className="text-red-500"><Trash2 size={16} /></button>
+              <div className="admin-row-actions">
+                <button onClick={() => setEditId(u.id)}><Pencil size={16} /> Editar</button>
+                <button onClick={() => eliminar(u)} className="danger"><Trash2 size={16} /> Eliminar</button>
               </div>
             </div>
           )}
         </div>
       ))}
+      </div>
 
-      <p className="text-[11px] text-gray-400 px-1">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaña Inspección y no ven Historial, Análisis, Hallazgos ni Admin.</p>
+      <p className="admin-help-text">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaña Inspección y no ven Historial, Análisis, Hallazgos ni Admin.</p>
     </div>
   );
 }
@@ -3202,16 +3762,16 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
 function UsuarioEditForm({ usuario, onSave, onCancel, primary }) {
   const [u, setU] = useState({ ...usuario, password: usuario.password });
   return (
-    <div className="space-y-2">
-      <input value={u.nombre} onChange={(e) => setU({ ...u, nombre: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Nombre" />
-      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" placeholder="Contraseña" />
-      <select value={u.rol} onChange={(e) => setU({ ...u, rol: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm">
+    <div className="admin-user-edit">
+      <input value={u.nombre} onChange={(e) => setU({ ...u, nombre: e.target.value })} placeholder="Nombre" />
+      <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} placeholder="Contraseña" />
+      <select value={u.rol} onChange={(e) => setU({ ...u, rol: e.target.value })}>
         <option value="usuario">Usuario (solo hace inspecciones)</option>
         <option value="administrador">Administrador (acceso total)</option>
       </select>
-      <div className="flex gap-2">
-        <button onClick={() => onSave(u)} className="flex-1 py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>Guardar</button>
-        <button onClick={onCancel} className="flex-1 py-2 rounded-md font-bold text-sm border">Cancelar</button>
+      <div className="admin-row-actions">
+        <button onClick={() => onSave(u)} style={{ background: primary, color: "#fff", borderColor: primary }}>Guardar</button>
+        <button onClick={onCancel}>Cancelar</button>
       </div>
     </div>
   );
@@ -3219,24 +3779,37 @@ function UsuarioEditForm({ usuario, onSave, onCancel, primary }) {
 
 function AdminAcercaDe({ primary }) {
   return (
-    <div className="bg-white rounded-xl p-4">
-      <div className="flex items-center gap-2 mb-1">
-        <Info size={18} color={primary} />
-        <h3 className="font-bold text-base" style={{ fontFamily: "Oswald, sans-serif" }}>Acerca de este checklist</h3>
+    <div className="admin-panel-shell">
+      <div className="admin-about-hero" style={{ borderColor: `${primary}44` }}>
+        <div className="admin-about-icon" style={{ color: primary, background: `${primary}14` }}>
+          <Info size={22} />
+        </div>
+        <div>
+          <h3 style={{ fontFamily: "inherit" }}>Acerca de este ERP</h3>
+          <p>Creado por <b>{CREADO_POR}</b></p>
+        </div>
+        <Badge color={primary} bg={`${primary}14`}>v{APP_VERSION}</Badge>
       </div>
-      <p className="text-sm text-gray-600">Creado por <span className="font-bold">{CREADO_POR}</span></p>
-      <p className="text-sm text-gray-400 mb-3">Versión actual: <span className="font-bold" style={{ color: primary }}>v{APP_VERSION}</span></p>
 
-      <h4 className="text-xs font-bold text-gray-500 uppercase mb-1.5">Historial de versiones</h4>
-      <div className="space-y-2">
+      <div className="admin-panel">
+        <div className="admin-panel-head">
+          <div>
+            <h3 style={{ fontFamily: "inherit" }}>Historial de versiones</h3>
+            <p>Registro de mejoras significativas aplicadas a la aplicación</p>
+          </div>
+          <Badge color="#5C6673" bg="#F1F3F4">{CHANGELOG.length} cambios</Badge>
+        </div>
+        <div className="admin-changelog-list">
         {CHANGELOG.map((c) => (
-          <div key={c.version} className="border-l-2 pl-2.5" style={{ borderColor: primary }}>
-            <p className="text-sm font-bold">v{c.version} <span className="text-xs font-normal text-gray-400">· {c.fecha}</span></p>
-            <p className="text-xs text-gray-600">{c.cambios}</p>
+          <div key={c.version} className="admin-changelog-row" style={{ borderColor: primary }}>
+            <strong>v{c.version}</strong>
+            <span>{c.fecha}</span>
+            <p>{c.cambios}</p>
           </div>
         ))}
+        </div>
       </div>
-      <p className="text-[11px] text-gray-400 mt-3">La versión se actualiza cada vez que se realizan ajustes significativos a la aplicación.</p>
+      <p className="admin-help-text">La versión se actualiza cada vez que se realizan ajustes significativos a la aplicación.</p>
     </div>
   );
 }

@@ -1,3 +1,3 @@
-function todayISO() {
+export function todayISO() {
   return new Date().toISOString();
 }

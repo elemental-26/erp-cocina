@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { FONT_SIZES } from "./typography";
-
-const ThemeContext = createContext();
+import ThemeContext from "./themeContextValue";
 
 export function ThemeProvider({ children }) {
 
@@ -24,8 +23,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  return useContext(ThemeContext);
 }

@@ -36,7 +36,7 @@ export default function AdminView({
       <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto">
         {subs.map((s) => (
           <button key={s.id} onClick={() => setSub(s.id)}
-            className="4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap"
+            className="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap"
             style={{ background: sub === s.id ? primary : "#F1F3F4", color: sub === s.id ? "#fff" : "#5C6673" }}>
             {s.label}
           </button>

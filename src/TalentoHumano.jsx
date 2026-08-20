@@ -133,7 +133,7 @@ function Modal({ title, onClose, children, wide }) {
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className={`bg-white w-full ${wide ? "sm:max-w-3xl" : "sm:max-w-md"} sm:rounded-lg rounded-t-2xl max-h-[90vh] flex flex-col`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h3 className="font-bold text-[15px]" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
+          <h3 className="font-bold text-[15px]" style={{ fontFamily: "inherit" }}>{title}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={20} /></button>
         </div>
         <div className="overflow-y-auto px-4 py-4">{children}</div>
@@ -171,7 +171,7 @@ function Metric({ label, value, icon: Icon, primary }) {
 function SimpleList({ title, items, empty }) {
   return (
     <div className="bg-white rounded-xl p-3">
-      <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
+      <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>{title}</h3>
       {items.length === 0 ? <p className="text-xs text-gray-400">{empty}</p> : (
         <div className="space-y-1.5">
           {items.map((item) => <p key={item} className="text-xs text-gray-600 bg-gray-50 rounded-md px-2 py-1.5">{item}</p>)}
@@ -220,7 +220,7 @@ export default function TalentoHumanoView({
         <div className="flex items-center gap-2">
           <BriefcaseBusiness size={20} color={primary} />
           <div>
-            <h2 className="text-base font-black text-gray-800 m-0" style={{ fontFamily: "Oswald, sans-serif" }}>Gestion del Talento Humano</h2>
+            <h2 className="text-base font-black text-gray-800 m-0" style={{ fontFamily: "inherit" }}>Gestion del Talento Humano</h2>
             <p className="text-xs text-gray-400">Evaluaciones, competencias, desarrollo y certificaciones.</p>
           </div>
         </div>
@@ -277,7 +277,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
 
       <div className="grid sm:grid-cols-2 gap-3">
         <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Promedio por area</h3>
+          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Promedio por area</h3>
           <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byArea}>
@@ -291,7 +291,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
           </div>
         </div>
         <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Tendencia historica</h3>
+          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Tendencia historica</h3>
           <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend}>
@@ -357,7 +357,7 @@ function Colaboradores({ colaboradores, evaluaciones, certificaciones, areas, us
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><UserPlus size={15} /> Base unica de personal</h3>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "inherit" }}><UserPlus size={15} /> Base unica de personal</h3>
         <div className="grid sm:grid-cols-2 gap-2">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="border rounded-md px-3 py-2 text-sm" />
           <input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="Documento" className="border rounded-md px-3 py-2 text-sm" />
@@ -431,7 +431,7 @@ function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClos
         <p><b>Supervisor:</b> {colaborador.supervisor || "Sin supervisor"}</p>
       </div>
 
-      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h4>
+      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "inherit" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">
         {evaluaciones.length === 0 && <p className="text-xs text-gray-400">Sin evaluaciones registradas.</p>}
         {evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
@@ -445,7 +445,7 @@ function CollaboratorDetail({ colaborador, evaluaciones, certificaciones, onClos
         ))}
       </div>
 
-      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Certificaciones</h4>
+      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "inherit" }}>Certificaciones</h4>
       <div className="space-y-2">
         {certificaciones.map((c) => (
           <div key={c.id} className="bg-gray-50 rounded-md px-2 py-1.5 text-xs flex items-center justify-between gap-2">
@@ -554,7 +554,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
 
       {grouped.map((section) => (
         <div key={section.group} className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
+          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>{section.group}</h3>
           <div className="space-y-2">
             {section.criteria.map((c) => (
               <CriterionRow key={c.id} criterion={c} onChange={(id, patch) => setCriteria(criteria.map((item) => item.id === id ? { ...item, ...patch } : item))} />
@@ -572,7 +572,7 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
       </div>
 
       <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h3>
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Historial de evaluaciones</h3>
         {evaluaciones.length === 0 ? (
           <p className="text-center text-sm text-gray-400 py-6">Sin evaluaciones registradas.</p>
         ) : (
@@ -672,7 +672,7 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><GraduationCap size={15} /> Registrar capacitacion</h3>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "inherit" }}><GraduationCap size={15} /> Registrar capacitacion</h3>
         <div className="grid sm:grid-cols-2 gap-2">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre de la capacitacion" className="border rounded-md px-3 py-2 text-sm" />
           <input value={form.tema} onChange={(e) => setForm({ ...form, tema: e.target.value })} placeholder="Tema" className="border rounded-md px-3 py-2 text-sm" />
@@ -760,7 +760,7 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-        <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Indicadores y reportes</h3>
+        <h3 className="font-bold text-sm" style={{ fontFamily: "inherit" }}>Indicadores y reportes</h3>
         <div className="flex gap-2">
           <button onClick={exportExcel} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}><Download size={15} /> Excel</button>
           <button onClick={exportPdf} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><FileText size={15} /> PDF</button>
@@ -768,7 +768,7 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
       </div>
 
       <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Estado de cumplimiento</h3>
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Estado de cumplimiento</h3>
         <div className="h-52">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -789,7 +789,7 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
       </div>
 
       <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Ranking de colaboradores</h3>
+        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "inherit" }}>Ranking de colaboradores</h3>
         <div className="space-y-1.5">
           {latest.map((c, idx) => (
             <div key={c.id} className="flex items-center justify-between bg-gray-50 rounded-md px-2 py-1.5">
@@ -824,7 +824,7 @@ function Plantillas({ config, primary, onConfig }) {
       {template.map((section) => (
         <div key={section.group} className="bg-white rounded-xl p-3">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
+            <h3 className="font-bold text-sm" style={{ fontFamily: "inherit" }}>{section.group}</h3>
             <button onClick={() => addItem(section.group)} className="px-2 py-1 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>Agregar aspecto</button>
           </div>
           <div className="space-y-1.5">

@@ -11,25 +11,26 @@ import {
 import * as XLSX from "xlsx";
 
 const DEFAULT_TEMPLATE = [
-  { group: "Planeacion", items: ["Lectura e interpretacion del menu", "Comprension de instrucciones", "Solicitud correcta de insumos"] },
-  { group: "Organizacion", items: ["Mise en place", "Orden del puesto de trabajo", "Limpieza durante el proceso"] },
-  { group: "Produccion", items: ["Aprovechamiento de materias primas", "Optimizacion de recursos", "Tecnicas de corte", "Porcionado", "Manipulacion higienica", "Uso correcto de equipos", "Cumplimiento de tiempos", "Calidad del producto", "Sabor", "Temperatura", "Presentacion del plato"] },
-  { group: "Competencias", items: ["Escucha instrucciones", "Comunicacion", "Trabajo en equipo", "Actitud", "Responsabilidad", "Iniciativa", "Adaptabilidad"] },
-  { group: "Finalizacion", items: ["Limpieza final", "Organizacion del area", "Entrega del puesto"] },
-  { group: "Desempeno laboral", performanceOnly: true, items: ["Cumplimiento de metas", "Puntualidad y asistencia", "Servicio al cliente", "Cumplimiento de BPM", "Liderazgo operativo"] },
+  { group: "Planeación", items: ["Lectura e interpretación del menú", "Comprensión de instrucciones", "Solicitud correcta de insumos"] },
+  { group: "Organización", items: ["Mise en place", "Orden del puesto de trabajo", "Limpieza durante el proceso"] },
+  { group: "Producción", items: ["Aprovechamiento de materias primas", "Optimización de recursos", "Técnicas de corte", "Porcionado", "Manipulación higiénica", "Uso correcto de equipos", "Cumplimiento de tiempos", "Calidad del producto", "Sabor", "Temperatura", "Presentación del plato"] },
+  { group: "Competencias", items: ["Escucha instrucciones", "Comunicación", "Trabajo en equipo", "Actitud", "Responsabilidad", "Iniciativa", "Adaptabilidad"] },
+  { group: "Finalización", items: ["Limpieza final", "Organización del área", "Entrega del puesto"] },
+  { group: "Desempeño laboral", performanceOnly: true, items: ["Cumplimiento de metas", "Puntualidad y asistencia", "Servicio al cliente", "Cumplimiento de BPM", "Liderazgo operativo"] },
 ];
 
 const SERVICE_TEMPLATE = [
-  { group: "Atencion al cliente", items: ["Saludo y bienvenida", "Escucha activa", "Amabilidad y lenguaje adecuado", "Manejo respetuoso de quejas", "Orientacion clara al usuario"] },
-  { group: "Operacion de servicio", items: ["Conocimiento del menu o portafolio", "Agilidad en la atencion", "Orden del punto de servicio", "Presentacion personal", "Registro correcto de solicitudes"] },
-  { group: "Comunicacion", items: ["Comunica novedades a cocina o administracion", "Trabajo coordinado con el equipo", "Confirma requerimientos especiales", "Evita discusiones frente al cliente"] },
-  { group: "Cumplimiento", items: ["Puntualidad y asistencia", "Cumplimiento de protocolos", "Manejo higienico durante el servicio", "Cuidado de equipos y elementos asignados"] },
-  { group: "Mejora del servicio", performanceOnly: true, items: ["Seguimiento a clientes frecuentes", "Propuesta de mejoras", "Resolucion preventiva de novedades", "Cumplimiento de metas de satisfaccion"] },
+  { group: "Atención al cliente", items: ["Saludo y bienvenida", "Escucha activa", "Amabilidad y lenguaje adecuado", "Manejo respetuoso de quejas", "Orientación clara al usuario"] },
+  { group: "Operación de servicio", items: ["Conocimiento del menú o portafolio", "Agilidad en la atención", "Orden del punto de servicio", "Presentación personal", "Registro correcto de solicitudes"] },
+  { group: "Comunicación", items: ["Comunica novedades a cocina o administración", "Trabajo coordinado con el equipo", "Confirma requerimientos especiales", "Evita discusiones frente al cliente"] },
+  { group: "Cumplimiento", items: ["Puntualidad y asistencia", "Cumplimiento de protocolos", "Manejo higiénico durante el servicio", "Cuidado de equipos y elementos asignados"] },
+  { group: "Mejora del servicio", performanceOnly: true, items: ["Seguimiento a clientes frecuentes", "Propuesta de mejoras", "Resolución preventiva de novedades", "Cumplimiento de metas de satisfacción"] },
 ];
 
 const CERT_TYPES = ["Manipulacion de alimentos", "Examenes medicos", "Curso interno", "Certificacion obligatoria"];
 const REVIEW_PERIODS = ["Mensual", "Trimestral", "Semestral", "Anual"];
 const PIE_COLORS = ["#1E7A46", "#B4750E", "#B5333D"];
+const MAX_EVIDENCE_PER_ITEM = 3;
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -59,16 +60,59 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
+function storedErpName() {
+  try {
+    return JSON.parse(localStorage.getItem("qc_config") || "{}")?.nombre || "ERP";
+  } catch {
+    return "ERP";
+  }
+}
+
+function printWatermarkCss() {
+  return `.print-watermark{position:fixed;left:50%;top:52%;width:520px;height:520px;object-fit:contain;transform:translate(-50%,-50%);opacity:.055;filter:grayscale(1) contrast(.75);z-index:-1;pointer-events:none}body{position:relative}.print-content{position:relative;z-index:1}`;
+}
+
+function printWatermarkHtml(config) {
+  return config?.logo && config?.watermarkLogo !== false ? `<img class="print-watermark" src="${config.logo}" />` : "";
+}
+
+function printFontFamily(config) {
+  return String(config?.fontFamily || "Inter, Arial, sans-serif").replace(/[<>{}]/g, "");
+}
+
 function evaluationTypeLabel(e) {
-  return e.tipo === "ingreso" ? "Ingreso" : `Desempeno ${e.periodicidad || ""}`.trim();
+  return e.tipo === "ingreso" ? "Ingreso" : `Desempeño ${e.periodicidad || ""}`.trim();
+}
+
+function evaluationPercent(e) {
+  const raw = e?.resultado?.percentage ?? e?.porcentaje ?? e?.cumplimiento ?? 0;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function evaluationLevel(e) {
+  return e?.resultado?.level || e?.nivel || "Sin nivel";
+}
+
+function evaluationRecommendation(e) {
+  return e?.resultado?.recommendation || e?.recomendacion || "Sin recomendación";
+}
+
+function safeFilePart(value, fallback = "registro") {
+  return (value || fallback).toString().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || fallback;
+}
+
+function normalizeEvidenceList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).slice(0, MAX_EVIDENCE_PER_ITEM);
+  return value ? [value].slice(0, MAX_EVIDENCE_PER_ITEM) : [];
 }
 
 function evidenceFromEvaluation(e) {
-  return (e.criteria || []).filter((c) => c.evidence).map((c) => ({
-    title: `${c.group}: ${c.text}`,
-    src: c.evidence,
+  return (e.criteria || []).flatMap((c) => normalizeEvidenceList(c.evidence).map((src, index) => ({
+    title: `${c.group}: ${c.text}${normalizeEvidenceList(c.evidence).length > 1 ? ` (${index + 1})` : ""}`,
+    src,
     observation: c.observation || "",
-  }));
+  })));
 }
 
 function openPrintDocument(title, html) {
@@ -161,19 +205,19 @@ function SignaturePad({ value, onChange, label }) {
     img.src = value;
   }, [open, value]);
   return (
-    <div className="border rounded-xl p-2 bg-gray-50">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold text-gray-500 uppercase">{label}</p>
-        {value && <button type="button" onClick={clear} className="text-xs font-bold text-red-600">Limpiar</button>}
+    <div className="signature-card">
+      <div className="signature-card-header">
+        <p className="signature-card-title">{label}</p>
+        {value && <button type="button" onClick={clear} className="signature-clear-button">Limpiar</button>}
       </div>
       {value ? (
-        <img src={value} alt={label} className="w-full h-24 object-contain bg-white rounded-lg border" />
+        <img src={value} alt={label} className="signature-preview-img" />
       ) : (
-        <div className="w-full h-24 bg-white rounded-lg border border-dashed flex items-center justify-center text-xs text-gray-400">
+        <div className="signature-preview-empty">
           Sin firma
         </div>
       )}
-      <button type="button" onClick={() => setOpen(true)} className="w-full mt-2 py-2 rounded-md border text-sm font-bold bg-white">
+      <button type="button" onClick={() => setOpen(true)} className="signature-open-button">
         Abrir panel de firma
       </button>
       {open && (
@@ -209,22 +253,113 @@ function SignaturePad({ value, onChange, label }) {
   );
 }
 
-function EvidenceActions({ onChange, multiple = false }) {
+function CameraCaptureButton({ onCapture }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const stop = () => {
+    streamRef.current?.getTracks?.().forEach((track) => track.stop());
+    streamRef.current = null;
+  };
+  const close = () => {
+    stop();
+    setOpen(false);
+    setError("");
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    const start = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } catch {
+        setError("No se pudo abrir la cámara. Revisa permisos del navegador o usa galería.");
+      }
+    };
+    if (navigator.mediaDevices?.getUserMedia) start();
+    else setError("Este navegador no permite cámara directa. Usa galería.");
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [open]);
+
+  const capture = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    const maxDim = 420;
+    const ratio = Math.min(maxDim / video.videoWidth, maxDim / video.videoHeight, 1);
+    canvas.width = Math.round(video.videoWidth * ratio);
+    canvas.height = Math.round(video.videoHeight * ratio);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    onCapture(canvas.toDataURL("image/png"));
+    close();
+  };
+
+  return (
+    <>
+      <button type="button" className="file-icon-button" title="Tomar foto con cámara" aria-label="Tomar foto con cámara" onClick={() => setOpen(true)}>
+        <ImagePlus size={18} />
+      </button>
+      {open && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(15,23,42,0.74)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+          <div style={{ width: "min(92vw, 520px)", background: "#fff", borderRadius: 16, padding: 12, boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 900, color: "#243040" }}>Tomar foto</p>
+              <button type="button" onClick={close} style={{ border: 0, background: "#F1F3F4", borderRadius: 999, width: 38, height: 38, minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
+            </div>
+            <div style={{ width: "100%", aspectRatio: "4 / 3", background: "#111827", borderRadius: 12, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {error ? <p style={{ color: "#fff", padding: 16, textAlign: "center", fontSize: 14 }}>{error}</p> : <video ref={videoRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+              <button type="button" onClick={close} style={{ border: "1px solid #D8DCE1", background: "#fff", borderRadius: 10, minHeight: 44, fontWeight: 800 }}>Cancelar</button>
+              <button type="button" onClick={capture} disabled={!!error} style={{ border: 0, background: error ? "#9CA3AF" : "#1E7A46", color: "#fff", borderRadius: 10, minHeight: 44, fontWeight: 900 }}>Capturar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function EvidenceActions({ onChange, multiple = false, onCapture }) {
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
-      <label className="border rounded-md px-2 py-1.5 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer">
-        <ImagePlus size={13} /> Camara
-        <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
-      </label>
-      <label className="border rounded-md px-2 py-1.5 text-xs font-bold flex items-center justify-center gap-1 cursor-pointer">
-        <Download size={13} /> Galeria
+      {onCapture && !multiple ? (
+        <CameraCaptureButton onCapture={onCapture} />
+      ) : (
+        <label className="file-icon-button" title="Tomar foto" aria-label="Tomar foto">
+          <ImagePlus size={18} />
+          <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={onChange} className="hidden" />
+        </label>
+      )}
+      <label className="file-icon-button" title="Galeria / archivo" aria-label="Galeria / archivo">
+        <Download size={18} />
         <input type="file" accept="image/*" multiple={multiple} onChange={onChange} className="hidden" />
       </label>
     </div>
   );
 }
 
-function evaluationHtml(e, colaborador, plan) {
+function evaluationHtml(e, colaborador, plan, config) {
+  const origin = config?.nombre || storedErpName();
+  const font = printFontFamily(config);
   const criteriaRows = (e.criteria || []).map((c) => `
     <tr>
       <td>${escapeHtml(c.group)}</td>
@@ -249,13 +384,14 @@ function evaluationHtml(e, colaborador, plan) {
   <meta charset="utf-8" />
   <title>Evaluacion - ${escapeHtml(e.colaboradorNombre)}</title>
   <style>
-    body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}
+    body{font-family:${font};color:#1f2937;margin:28px;line-height:1.4}
     h1{font-size:22px;margin:0 0 6px;text-transform:uppercase}
     h2{font-size:15px;margin:22px 0 8px}
+    .origin{position:fixed;right:16px;top:12px;font-size:10px;color:#6b7280}
     .meta,.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}
     .meta{display:grid;grid-template-columns:170px 1fr;gap:6px 14px}
     .label{font-weight:700;color:#4b5563}
-    .score{font-size:34px;font-weight:800;color:${(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"}}
+    .score{font-size:34px;font-weight:800;color:${evaluationPercent(e) >= 75 ? "#1E7A46" : "#B5333D"}}
     table{width:100%;border-collapse:collapse;margin-top:8px}
     th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}
     th{background:#f3f4f6}
@@ -268,11 +404,15 @@ function evaluationHtml(e, colaborador, plan) {
     .signed img{width:100%;height:70px;object-fit:contain}
     .signed p{border-top:1px solid #111827;margin:6px 0 0;padding-top:5px}
     @media print{body{margin:16mm}.photo img{height:140px}}
+    ${printWatermarkCss()}
   </style>
 </head>
 <body>
+  ${printWatermarkHtml(config)}
+  <div class="print-content">
+  <div class="origin">Creado por ${escapeHtml(origin)}</div>
   <h1>Evaluacion de talento humano</h1>
-  <p>Reporte individual generado desde el ERP.</p>
+  <p>Reporte individual generado desde ${escapeHtml(origin)}.</p>
   <div class="meta">
     <div class="label">Colaborador</div><div>${escapeHtml(e.colaboradorNombre)}</div>
     <div class="label">Documento</div><div>${escapeHtml(colaborador?.documento || "")}</div>
@@ -284,9 +424,9 @@ function evaluationHtml(e, colaborador, plan) {
     <div class="label">Evaluador</div><div>${escapeHtml(e.evaluador || "")}</div>
   </div>
   <div class="box">
-    <div class="score">${e.resultado?.percentage || 0}%</div>
-    <p><b>Nivel:</b> ${escapeHtml(e.resultado?.level || "")}</p>
-    <p><b>Recomendacion:</b> ${escapeHtml(e.resultado?.recommendation || "")}</p>
+    <div class="score">${evaluationPercent(e)}%</div>
+    <p><b>Nivel:</b> ${escapeHtml(evaluationLevel(e))}</p>
+    <p><b>Recomendacion:</b> ${escapeHtml(evaluationRecommendation(e))}</p>
   </div>
   <h2>Observaciones generales</h2>
   <div class="box">${escapeHtml(e.observaciones || "Sin observaciones generales.")}</div>
@@ -297,11 +437,14 @@ function evaluationHtml(e, colaborador, plan) {
   <h2>Registro fotografico</h2>
   ${evidence ? `<div class="photos">${evidence}</div>` : '<div class="box">Sin registro fotografico.</div>'}
   <div class="firmas">${signature(e.firmaColaborador, "Colaborador")}${signature(e.firmaEvaluador, "Evaluador")}</div>
+  </div>
 </body>
 </html>`;
 }
 
-function accumulatedHtml(colaborador, evaluaciones, planes) {
+function accumulatedHtml(colaborador, evaluaciones, planes, config) {
+  const origin = config?.nombre || storedErpName();
+  const font = printFontFamily(config);
   const ordered = evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const rows = ordered.map((e) => `
     <tr>
@@ -309,8 +452,8 @@ function accumulatedHtml(colaborador, evaluaciones, planes) {
       <td>${escapeHtml(evaluationTypeLabel(e))}</td>
       <td>${escapeHtml(e.perfil === "servicio" ? "Servicio al cliente" : "Cocina")}</td>
       <td>${escapeHtml(e.evaluador || "")}</td>
-      <td>${e.resultado?.percentage || 0}%</td>
-      <td>${escapeHtml(e.resultado?.level || "")}</td>
+      <td>${evaluationPercent(e)}%</td>
+      <td>${escapeHtml(evaluationLevel(e))}</td>
       <td>${escapeHtml(e.observaciones || "")}</td>
     </tr>
   `).join("");
@@ -319,14 +462,18 @@ function accumulatedHtml(colaborador, evaluaciones, planes) {
   `).join("");
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8" /><title>Acumulado - ${escapeHtml(colaborador.nombre)}</title>
-<style>body{font-family:Arial,sans-serif;color:#1f2937;margin:28px;line-height:1.4}h1{font-size:22px;margin:0 0 6px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}</style>
+<style>body{font-family:${font};color:#1f2937;margin:28px;line-height:1.4}.origin{position:fixed;right:16px;top:12px;font-size:10px;color:#6b7280}h1{font-size:22px;margin:0 0 6px;text-transform:uppercase}h2{font-size:15px;margin:22px 0 8px}.box{border:1px solid #d1d5db;border-radius:8px;padding:12px;margin:12px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:7px;font-size:12px;vertical-align:top}th{background:#f3f4f6}${printWatermarkCss()}</style>
 </head><body>
+${printWatermarkHtml(config)}
+<div class="print-content">
+<div class="origin">Creado por ${escapeHtml(origin)}</div>
 <h1>Reporte acumulado de evaluaciones</h1>
 <div class="box"><b>Colaborador:</b> ${escapeHtml(colaborador.nombre)}<br><b>Cargo:</b> ${escapeHtml(colaborador.cargo || colaborador.rol || "")}<br><b>Area:</b> ${escapeHtml(colaborador.area || colaborador.areas?.[0] || "")}<br><b>Total evaluaciones:</b> ${ordered.length}</div>
 <h2>Evaluaciones con observaciones</h2>
 <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Perfil</th><th>Evaluador</th><th>Resultado</th><th>Nivel</th><th>Observaciones</th></tr></thead><tbody>${rows}</tbody></table>
 <h2>Planes de mejora</h2>
 ${planRows ? `<table><thead><tr><th>Estado</th><th>Hallazgos</th><th>Acciones</th><th>Responsable</th><th>Compromiso</th></tr></thead><tbody>${planRows}</tbody></table>` : '<div class="box">Sin planes de mejora asociados.</div>'}
+</div>
 </body></html>`;
 }
 
@@ -439,27 +586,73 @@ function Badge({ children, color, bg }) {
 
 function Modal({ title, onClose, children, wide }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className={`bg-white w-full ${wide ? "sm:max-w-3xl" : "sm:max-w-md"} sm:rounded-lg rounded-t-2xl max-h-[90vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h3 className="font-bold text-[15px]" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100"><X size={20} /></button>
+    <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+      <div style={{ width: "100%", maxWidth: wide ? 920 : 520, maxHeight: "90svh", background: "#fff", borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", borderBottom: "1px solid #E5E7EB" }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: "#243040", fontFamily: "inherit" }}>{title}</h3>
+          <button onClick={onClose} style={{ border: 0, background: "#F1F3F4", borderRadius: 999, width: 40, height: 40, minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><X size={20} /></button>
         </div>
-        <div className="overflow-y-auto px-4 py-4">{children}</div>
+        <div style={{ overflowY: "auto", padding: 14 }}>{children}</div>
       </div>
     </div>
   );
 }
 
+class DetailErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <Modal title="Detalle no disponible" onClose={this.props.onClose}>
+        <div style={{ display: "grid", gap: 12, textAlign: "center" }}>
+          <p style={{ margin: 0, color: "#475569", fontSize: 14, fontWeight: 800 }}>
+            No fue posible abrir este detalle porque hay un registro antiguo incompleto. La información del colaborador permanece guardada.
+          </p>
+          <button type="button" onClick={this.props.onClose} style={{ minHeight: 44, border: 0, borderRadius: 12, background: "#1E7A46", color: "#fff", fontSize: 14, fontWeight: 900 }}>
+            Volver a colaboradores
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+}
+
 function StampGauge({ pct, size = 118 }) {
   const clamped = Math.max(0, Math.min(100, pct));
-  const angle = (clamped / 100) * 360;
   const color = clamped >= 85 ? "#1E7A46" : clamped >= 60 ? "#B4750E" : "#B5333D";
+  const flameId = `flameGauge${size}${clamped}`;
+  const gradientId = `flameFill${size}${clamped}`;
+  const flamePath = "M50 5 C61 22 78 31 78 55 C78 78 64 94 50 98 C35 94 22 79 22 59 C22 43 31 31 42 20 C41 34 51 39 51 49 C60 40 59 23 50 5 Z";
+  const y = 104 - (clamped * 0.99);
   return (
-    <div className="relative flex items-center justify-center rounded-full overflow-hidden mx-auto" style={{ width: size, height: size, minWidth: size, background: `conic-gradient(${color} ${angle}deg, #E7E9EC ${angle}deg)` }}>
-      <div className="absolute rounded-full flex flex-col items-center justify-center border border-dashed text-center px-2" style={{ width: size - 22, height: size - 22, background: "#fff", borderColor: color }}>
-        <span className="text-xl font-black leading-none" style={{ color }}>{clamped}%</span>
-        <span className="text-[9px] font-bold uppercase leading-tight mt-1" style={{ color }}>Resultado</span>
+    <div style={{ width: size, minWidth: size, height: size, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto" }}>
+      <svg viewBox="0 0 100 110" width={size} height={size} aria-hidden="true" style={{ display: "block", filter: "drop-shadow(0 12px 18px rgba(15,23,42,0.14))" }}>
+        <defs>
+          <clipPath id={flameId}>
+            <path d={flamePath} />
+          </clipPath>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="1" y2="0">
+            <stop offset="0%" stopColor={color} />
+            <stop offset="100%" stopColor={clamped >= 85 ? "#48B86F" : clamped >= 60 ? "#F2B84B" : "#E55555"} />
+          </linearGradient>
+        </defs>
+        <path d={flamePath} fill="#F4F6F8" stroke="#D8DCE1" strokeWidth="3" />
+        <g clipPath={`url(#${flameId})`}>
+          <rect x="0" y={y} width="100" height={110 - y} fill={`url(#${gradientId})`} />
+        </g>
+        <path d={flamePath} fill="none" stroke={color} strokeWidth="3" />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", paddingTop: 16 }}>
+        <span style={{ color, fontSize: size >= 118 ? 24 : 20, lineHeight: 1, fontWeight: 950 }}>{clamped}%</span>
+        <span style={{ color, fontSize: 10, lineHeight: 1.1, fontWeight: 900, textTransform: "uppercase", letterSpacing: 0, marginTop: 4 }}>Resultado</span>
       </div>
     </div>
   );
@@ -467,23 +660,48 @@ function StampGauge({ pct, size = 118 }) {
 
 function Metric({ label, value, icon: Icon, primary }) {
   return (
-    <div className="bg-white rounded-xl p-3 min-h-[92px] flex flex-col justify-between">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold text-gray-400 uppercase leading-tight">{label}</span>
-        <Icon size={16} color={primary} />
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #E6E9EE",
+        borderRadius: 14,
+        minHeight: 112,
+        padding: "14px 10px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        boxShadow: "0 8px 20px rgba(15,23,42,0.06)",
+      }}
+    >
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 999,
+          background: `${primary}14`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 8,
+        }}
+      >
+        <Icon size={17} color={primary} />
       </div>
-      <p className="text-2xl font-black text-gray-800 leading-none">{value}</p>
+      <p style={{ margin: 0, color: "#243040", fontSize: 30, lineHeight: 1, fontWeight: 900 }}>{value}</p>
+      <span style={{ marginTop: 7, color: "#7C8795", fontSize: 13, lineHeight: 1.15, fontWeight: 800, textTransform: "uppercase" }}>{label}</span>
     </div>
   );
 }
 
 function SimpleList({ title, items, empty }) {
   return (
-    <div className="bg-white rounded-xl p-3">
-      <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{title}</h3>
-      {items.length === 0 ? <p className="text-xs text-gray-400">{empty}</p> : (
+    <div className="talent-panel">
+      <h3 className="talent-panel-title" style={{ fontFamily: "inherit" }}>{title}</h3>
+      {items.length === 0 ? <div className="talent-empty">{empty}</div> : (
         <div className="space-y-1.5">
-          {items.map((item) => <p key={item} className="text-xs text-gray-600 bg-gray-50 rounded-md px-2 py-1.5">{item}</p>)}
+          {items.map((item) => <p key={item} className="talent-list-item">{item}</p>)}
         </div>
       )}
     </div>
@@ -502,46 +720,51 @@ export default function TalentoHumanoView({
     const statPeople = colaboradores.filter((c) => includeInStats(c, config?.inactiveStatsMonths || 6));
     const latest = statPeople.map((c) => ({ c, last: latestEvaluation(c.id, evaluaciones) }));
     const evaluated = latest.filter((x) => x.last).length;
-    const average = evaluated ? Math.round(latest.reduce((sum, x) => sum + (x.last?.resultado?.percentage || 0), 0) / evaluated) : 0;
+    const average = evaluated ? Math.round(latest.reduce((sum, x) => sum + evaluationPercent(x.last), 0) / evaluated) : 0;
     return {
       total: active.length,
       evaluated,
       pending: Math.max(active.length - active.filter((c) => latestEvaluation(c.id, evaluaciones)).length, 0),
       average,
-      outstanding: latest.filter((x) => (x.last?.resultado?.percentage || 0) >= 95).length,
+      outstanding: latest.filter((x) => evaluationPercent(x.last) >= 95).length,
       improvement: planes.filter((p) => p.estado !== "Cerrado").length,
       expiring: certificaciones.filter((c) => daysUntil(c.vencimiento) >= 0 && daysUntil(c.vencimiento) <= 30).length,
     };
-  }, [colaboradores, evaluaciones, planes, certificaciones]);
+  }, [colaboradores, evaluaciones, planes, certificaciones, config?.inactiveStatsMonths]);
 
   const subs = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "colaboradores", label: "Colaboradores" },
-    { id: "evaluaciones", label: "Evaluaciones" },
-    { id: "historial", label: "Historial" },
-    { id: "planes", label: "Planes" },
-    { id: "capacitaciones", label: "Capacitaciones" },
-    { id: "indicadores", label: "Indicadores" },
-    { id: "plantillas", label: "Plantillas" },
+    { id: "dashboard", label: "Dashboard", icon: BarChart3 },
+    { id: "colaboradores", label: "Colaboradores", icon: Users },
+    { id: "evaluaciones", label: "Evaluaciones", icon: ClipboardCheck },
+    { id: "historial", label: "Historial", icon: FileText },
+    { id: "planes", label: "Planes", icon: ShieldCheck },
+    { id: "capacitaciones", label: "Capacitaciones", icon: GraduationCap },
+    { id: "indicadores", label: "Indicadores", icon: Award },
+    { id: "plantillas", label: "Plantillas", icon: Pencil },
   ];
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-2 flex gap-1.5 overflow-x-auto">
-        {subs.map((s) => (
-          <button key={s.id} onClick={() => setSub(s.id)} className="px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap" style={{ background: sub === s.id ? primary : "#F1F3F4", color: sub === s.id ? "#fff" : "#5C6673" }}>
-            {s.label}
+    <div className="talent-module-shell">
+      <div className="talent-tabs">
+        {subs.map((s) => {
+          const Icon = s.icon;
+          const active = sub === s.id;
+          return (
+          <button key={s.id} onClick={() => setSub(s.id)} className={`talent-tab ${active ? "active" : ""}`} style={active ? { background: primary, borderColor: primary } : undefined}>
+            <Icon size={15} />
+            <span>{s.label}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {sub === "dashboard" && <Dashboard stats={stats} colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} primary={primary} accent={accent} />}
-      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
+      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} config={config} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
       {sub === "evaluaciones" && <Evaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} currentUser={currentUser} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
-      {sub === "historial" && <HistorialEvaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} primary={primary} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
+      {sub === "historial" && <HistorialEvaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
       {sub === "planes" && <Planes planes={planes} colaboradores={colaboradores} primary={primary} onPlanes={onPlanes} />}
       {sub === "capacitaciones" && <Capacitaciones capacitaciones={capacitaciones} colaboradores={colaboradores} primary={primary} onCapacitaciones={onCapacitaciones} />}
-      {sub === "indicadores" && <Indicadores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} capacitaciones={capacitaciones} certificaciones={certificaciones} primary={primary} />}
+      {sub === "indicadores" && <Indicadores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} capacitaciones={capacitaciones} certificaciones={certificaciones} primary={primary} config={config} />}
       {sub === "plantillas" && <Plantillas config={config} primary={primary} onConfig={onConfig} />}
     </div>
   );
@@ -554,19 +777,19 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
       const col = colaboradores.find((c) => c.id === e.colaboradorId);
       const area = col?.area || "Sin area";
       if (!map[area]) map[area] = { area, total: 0, count: 0 };
-      map[area].total += e.resultado?.percentage || 0;
+      map[area].total += evaluationPercent(e);
       map[area].count += 1;
     });
     return Object.values(map).map((x) => ({ area: x.area, promedio: Math.round(x.total / x.count) }));
   }, [colaboradores, evaluaciones]);
 
-  const trend = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).slice(-10).map((e) => ({ fecha: fmtFecha(e.fecha), promedio: e.resultado?.percentage || 0 }));
+  const trend = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).slice(-10).map((e) => ({ fecha: fmtFecha(e.fecha), promedio: evaluationPercent(e) }));
   const expiring = certificaciones.filter((c) => daysUntil(c.vencimiento) <= 45).sort((a, b) => daysUntil(a.vencimiento) - daysUntil(b.vencimiento)).slice(0, 5);
-  const topPeople = colaboradores.filter(isActiveCollaborator).map((c) => ({ ...c, score: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
+  const topPeople = colaboradores.filter(isActiveCollaborator).map((c) => ({ ...c, score: evaluationPercent(latestEvaluation(c.id, evaluaciones)) })).filter((c) => c.score >= 85).sort((a, b) => b.score - a.score).slice(0, 5);
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+    <div className="talent-dashboard">
+      <div className="talent-metrics-grid">
         <Metric label="Colaboradores" value={stats.total} icon={Users} primary={primary} />
         <Metric label="Evaluados" value={stats.evaluated} icon={ClipboardCheck} primary={primary} />
         <Metric label="Pendientes" value={stats.pending} icon={AlertTriangle} primary={primary} />
@@ -575,12 +798,13 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
         <Metric label="En mejora" value={stats.improvement} icon={ShieldCheck} primary={primary} />
         <Metric label="Vencimientos" value={stats.expiring} icon={CalendarClock} primary={primary} />
         <Metric label="Evaluaciones" value={evaluaciones.length} icon={FileText} primary={primary} />
+        <Metric label="Certificados" value={certificaciones.length} icon={Award} primary={primary} />
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Promedio por area</h3>
-          <div className="h-52">
+      <div className="talent-chart-grid">
+        <div className="talent-panel">
+          <h3 className="talent-panel-title" style={{ fontFamily: "inherit" }}>Promedio por área</h3>
+          <div style={{ width: "100%", height: 230 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byArea}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -592,9 +816,9 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Tendencia historica</h3>
-          <div className="h-52">
+        <div className="talent-panel">
+          <h3 className="talent-panel-title" style={{ fontFamily: "inherit" }}>Tendencia histórica</h3>
+          <div style={{ width: "100%", height: 230 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -608,7 +832,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3">
+      <div className="talent-list-grid">
         <SimpleList title="Personal destacado" empty="Sin destacados todavia" items={topPeople.map((p) => `${p.nombre} · ${p.score}%`)} />
         <SimpleList title="Planes activos" empty="Sin planes activos" items={planes.filter((p) => p.estado !== "Cerrado").slice(0, 5).map((p) => `${p.colaboradorNombre} · ${p.estado}`)} />
         <SimpleList title="Certificaciones proximas" empty="Sin alertas" items={expiring.map((c) => `${c.colaboradorNombre} · ${c.tipo} · ${c.vencimiento}`)} />
@@ -617,35 +841,34 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
   );
 }
 
-function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, areas, usuarios, primary, onColaboradores, onCertificaciones }) {
+function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, areas, usuarios, primary, config, onColaboradores, onCertificaciones }) {
   const blank = { nombre: "", documento: "", cargo: "", area: areas[0]?.nombre || "", areas: areas[0]?.nombre ? [areas[0].nombre] : [], fechaIngreso: dateOnly(new Date()), estado: "Activo", inactiveDate: "", supervisor: "", foto: null };
   const [form, setForm] = useState(blank);
-  const [editId, setEditId] = useState(null);
+  const [inlineEditId, setInlineEditId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(null);
   const [detail, setDetail] = useState(null);
+
+  const collaboratorPayload = (source, existing = {}) => ({
+    ...existing,
+    ...source,
+    nombre: (source.nombre || "").trim(),
+    documento: (source.documento || "").trim(),
+    cargo: source.cargo || source.rol || "",
+    rol: source.cargo || source.rol || "",
+    area: source.area || source.areas?.[0] || "",
+    areas: source.area ? [source.area] : (source.areas || []),
+    foto: source.foto || existing.foto || null,
+    inactiveDate: source.estado === "Inactivo" || source.estado === "Retirado" ? (source.inactiveDate || dateOnly(new Date())) : "",
+  });
 
   const save = () => {
     if (!form.nombre.trim()) return;
-    const existing = colaboradores.find((c) => c.id === editId);
-    const payload = {
-      ...form,
-      nombre: form.nombre.trim(),
-      documento: form.documento.trim(),
-      rol: form.cargo,
-      areas: form.area ? [form.area] : [],
-      foto: form.foto || existing?.foto || null,
-      inactiveDate: form.estado === "Inactivo" || form.estado === "Retirado" ? (form.inactiveDate || dateOnly(new Date())) : "",
-    };
-    if (editId) {
-      onColaboradores(colaboradores.map((c) => c.id === editId ? { ...c, ...payload } : c));
-      setEditId(null);
-    } else {
-      onColaboradores([{ id: genId(), ...payload }, ...colaboradores]);
-    }
+    const payload = collaboratorPayload(form);
+    onColaboradores([{ id: genId(), ...payload }, ...colaboradores]);
     setForm(blank);
   };
 
-  const startEdit = (colaborador) => {
-    setForm({
+  const draftFromCollaborator = (colaborador) => ({
       nombre: colaborador.nombre || "",
       documento: colaborador.documento || "",
       cargo: colaborador.cargo || colaborador.rol || "",
@@ -656,14 +879,35 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
       inactiveDate: colaborador.inactiveDate || "",
       supervisor: colaborador.supervisor || "",
       foto: colaborador.foto || null,
-    });
-    setEditId(colaborador.id);
+  });
+
+  const startInlineEdit = (colaborador) => {
+    setInlineDraft(draftFromCollaborator(colaborador));
+    setInlineEditId(colaborador.id);
+  };
+
+  const cancelInlineEdit = () => {
+    setInlineEditId(null);
+    setInlineDraft(null);
+  };
+
+  const saveInlineEdit = (colaborador) => {
+    if (!inlineDraft?.nombre?.trim()) return;
+    const payload = collaboratorPayload(inlineDraft, colaborador);
+    onColaboradores(colaboradores.map((c) => c.id === colaborador.id ? { ...c, ...payload } : c));
+    cancelInlineEdit();
   };
 
   const handlePhoto = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setForm({ ...form, foto: await resizeImageToDataUrl(file, 320) });
+  };
+  const handleInlinePhoto = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !inlineDraft) return;
+    setInlineDraft({ ...inlineDraft, foto: await resizeImageToDataUrl(file, 280) });
+    e.target.value = "";
   };
 
   const archived = colaboradores.filter((c) => !isActiveCollaborator(c));
@@ -672,11 +916,11 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
   };
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><UserPlus size={15} /> Base unica de personal</h3>
-        <div className="grid md:grid-cols-[1fr_220px] gap-3 items-start">
-          <div className="grid sm:grid-cols-2 gap-2">
+    <div className="collab-shell">
+      <div className="collab-form-card">
+        <h3 className="collab-section-title"><UserPlus size={15} /> Base única de personal</h3>
+        <div className="collab-form-layout">
+          <div className="collab-field-grid">
             <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre completo" className="border rounded-md px-3 py-2 text-sm" />
             <input value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="Documento" className="border rounded-md px-3 py-2 text-sm" />
             <input value={form.cargo} onChange={(e) => setForm({ ...form, cargo: e.target.value })} placeholder="Cargo" className="border rounded-md px-3 py-2 text-sm" />
@@ -696,122 +940,199 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
               {usuarios.map((u) => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}
             </select>
           </div>
-          <div className="border rounded-xl p-2 bg-gray-50">
-            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Foto del colaborador</p>
-            <div className="h-40 rounded-lg bg-white border overflow-hidden flex items-center justify-center">
+          <div className="collab-photo-panel">
+            <p>Foto del colaborador</p>
+            <div className="collab-photo-preview">
               {form.foto ? <img src={form.foto} alt="" className="w-full h-full object-cover" /> : <Users size={34} className="text-gray-300" />}
             </div>
-            <div className="mt-2">
-              <EvidenceActions onChange={handlePhoto} />
+            <div className="collab-photo-actions">
+              <EvidenceActions onChange={handlePhoto} onCapture={(dataUrl) => setForm({ ...form, foto: dataUrl })} />
             </div>
             {form.foto && <button type="button" onClick={() => setForm({ ...form, foto: null })} className="w-full mt-2 text-xs font-bold text-red-600">Quitar foto</button>}
           </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={save} className="flex-1 py-2 rounded-md font-bold text-white text-sm" style={{ background: primary }}>{editId ? "Guardar cambios" : "Agregar colaborador"}</button>
-          {editId && <button onClick={() => { setEditId(null); setForm(blank); }} className="px-3 py-2 rounded-md font-bold text-sm border">Cancelar</button>}
+        <div className="collab-form-actions">
+          <button onClick={save} style={{ background: primary }}>Agregar colaborador</button>
         </div>
       </div>
 
+      <div className="collab-list">
       {colaboradores.filter(isActiveCollaborator).map((c) => {
-        const last = latestEvaluation(c.id, evaluaciones);
+        const editing = inlineEditId === c.id && inlineDraft;
         return (
-          <div key={c.id} className="bg-white rounded-xl p-3 flex items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center flex-shrink-0">
-              {c.foto ? <img src={c.foto} className="w-full h-full object-cover" alt="" /> : <Users size={20} className="text-gray-300" />}
-            </div>
-            <button onClick={() => setDetail(c)} className="flex-1 text-left min-w-0">
-              <p className="font-bold text-sm truncate">{c.nombre}</p>
-              <p className="text-xs text-gray-400 truncate">{c.cargo || c.rol || "Sin cargo"} · {c.area || c.areas?.[0] || "Sin area"} · ID {c.id.slice(0, 8)}</p>
-              <p className="text-xs text-gray-500">{last ? `Ultima evaluacion: ${last.resultado.percentage}%` : "Sin evaluaciones"}</p>
-            </button>
-            <button onClick={() => startEdit(c)} className="text-gray-500"><Pencil size={16} /></button>
-            <button
-              onClick={() => window.confirm("Inactivar y archivar este colaborador?") && onColaboradores(colaboradores.map((x) => x.id === c.id ? { ...x, estado: "Inactivo", inactiveDate: dateOnly(new Date()) } : x))}
-              className="text-red-500"
-              title="Inactivar"
-            >
-              <Trash2 size={16} />
-            </button>
+          <div key={c.id} className="collab-card">
+            {editing ? (
+              <div className="collab-edit-row">
+                <div className="collab-edit-photo">
+                  {inlineDraft.foto ? <img src={inlineDraft.foto} className="w-full h-full object-cover" alt="" /> : <Users size={22} className="text-gray-300" />}
+                </div>
+                <div className="collab-edit-fields">
+                  <input value={inlineDraft.nombre} onChange={(e) => setInlineDraft({ ...inlineDraft, nombre: e.target.value })} placeholder="Nombre completo" className="border rounded-md px-2 py-1.5 text-sm" />
+                  <input value={inlineDraft.documento} onChange={(e) => setInlineDraft({ ...inlineDraft, documento: e.target.value })} placeholder="Documento" className="border rounded-md px-2 py-1.5 text-sm" />
+                  <input value={inlineDraft.cargo} onChange={(e) => setInlineDraft({ ...inlineDraft, cargo: e.target.value })} placeholder="Cargo" className="border rounded-md px-2 py-1.5 text-sm" />
+                  <select value={inlineDraft.area} onChange={(e) => setInlineDraft({ ...inlineDraft, area: e.target.value, areas: e.target.value ? [e.target.value] : [] })} className="border rounded-md px-2 py-1.5 text-sm">
+                    <option value="">Sin area</option>
+                    {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                  </select>
+                  <input type="date" value={inlineDraft.fechaIngreso} onChange={(e) => setInlineDraft({ ...inlineDraft, fechaIngreso: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm" />
+                  <select value={inlineDraft.estado} onChange={(e) => setInlineDraft({ ...inlineDraft, estado: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm">
+                    <option>Activo</option>
+                    <option>En entrenamiento</option>
+                    <option>Inactivo</option>
+                    <option>Retirado</option>
+                  </select>
+                  <select value={inlineDraft.supervisor} onChange={(e) => setInlineDraft({ ...inlineDraft, supervisor: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm">
+                    <option value="">Supervisor</option>
+                    {usuarios.map((u) => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}
+                  </select>
+                  <div className="collab-inline-photo-tools">
+                    <EvidenceActions onChange={handleInlinePhoto} onCapture={(dataUrl) => setInlineDraft((prev) => prev ? { ...prev, foto: dataUrl } : prev)} />
+                    {inlineDraft.foto && <button type="button" onClick={() => setInlineDraft({ ...inlineDraft, foto: null })} className="text-xs font-bold text-red-600">Quitar</button>}
+                  </div>
+                </div>
+                <div className="collab-edit-actions">
+                  <button onClick={() => saveInlineEdit(c)} style={{ background: primary, color: "#fff", borderColor: primary }}><Save size={14} /> Guardar</button>
+                  <button onClick={cancelInlineEdit}>Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <div className="collab-card-view">
+                <div className="collab-avatar">
+                  {c.foto ? <img src={c.foto} className="w-full h-full object-cover" alt="" /> : <Users size={20} className="text-gray-300" />}
+                </div>
+                <button onClick={() => setDetail(c)} className="collab-main-button">
+                  <p>{c.nombre}</p>
+                  <span>{c.cargo || c.rol || "Sin cargo"} · {c.area || c.areas?.[0] || "Sin área"}</span>
+                </button>
+                <button onClick={() => startInlineEdit(c)} className="collab-icon-button" title="Editar"><Pencil size={16} /></button>
+                <button
+                  onClick={() => window.confirm("Inactivar y archivar este colaborador?") && onColaboradores(colaboradores.map((x) => x.id === c.id ? { ...x, estado: "Inactivo", inactiveDate: dateOnly(new Date()) } : x))}
+                  className="collab-icon-button danger"
+                  title="Inactivar"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
+      </div>
 
-      <div className="bg-white rounded-xl p-3">
-        <div className="flex items-center justify-between gap-2">
+      <div className="collab-archive-section">
+        <div className="collab-archive-header">
           <div>
-            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Archivados</h3>
-            <p className="text-xs text-gray-400">Colaboradores inactivos o retirados. Permanecen guardados con su historial.</p>
+            <h3>Archivados</h3>
+            <p>Colaboradores inactivos o retirados. Permanecen guardados con su historial.</p>
           </div>
           <Badge color="#5C6673" bg="#EAECEF">{archived.length}</Badge>
         </div>
 
         {archived.length === 0 ? (
-          <p className="text-xs text-gray-400 mt-3">No hay colaboradores archivados.</p>
+          <div className="collab-empty">No hay colaboradores archivados.</div>
         ) : (
-          <div className="space-y-2 mt-3">
-            {archived.map((c) => (
-              <div key={c.id} className="border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-3">
-                <button onClick={() => setDetail(c)} className="text-left min-w-0 flex-1">
-                  <p className="font-bold text-sm truncate">{c.nombre}</p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {c.estado} · {c.inactiveDate ? `Desde ${c.inactiveDate}` : "Sin fecha"} · {c.cargo || c.rol || "Sin cargo"}
-                  </p>
-                </button>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button onClick={() => startEdit(c)} className="px-2.5 py-1 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>
-                    Editar
-                  </button>
-                  <button onClick={() => reactivate(c.id)} className="px-2.5 py-1 rounded-md text-xs font-bold text-white" style={{ background: primary }}>
-                    Reactivar
-                  </button>
+          <div className="collab-archived-list">
+            {archived.map((c) => {
+              const editing = inlineEditId === c.id && inlineDraft;
+              return (
+                <div key={c.id} className="collab-archived-card">
+                  {editing ? (
+                    <div className="collab-edit-row">
+                      <div className="collab-edit-photo">
+                        {inlineDraft.foto ? <img src={inlineDraft.foto} className="w-full h-full object-cover" alt="" /> : <Users size={20} className="text-gray-300" />}
+                      </div>
+                      <div className="collab-edit-fields">
+                        <input value={inlineDraft.nombre} onChange={(e) => setInlineDraft({ ...inlineDraft, nombre: e.target.value })} placeholder="Nombre completo" />
+                        <input value={inlineDraft.documento} onChange={(e) => setInlineDraft({ ...inlineDraft, documento: e.target.value })} placeholder="Documento" />
+                        <input value={inlineDraft.cargo} onChange={(e) => setInlineDraft({ ...inlineDraft, cargo: e.target.value })} placeholder="Cargo" />
+                        <select value={inlineDraft.area} onChange={(e) => setInlineDraft({ ...inlineDraft, area: e.target.value, areas: e.target.value ? [e.target.value] : [] })}>
+                          <option value="">Sin area</option>
+                          {areas.map((a) => <option key={a.id} value={a.nombre}>{a.nombre}</option>)}
+                        </select>
+                        <select value={inlineDraft.estado} onChange={(e) => setInlineDraft({ ...inlineDraft, estado: e.target.value })}>
+                          <option>Activo</option>
+                          <option>En entrenamiento</option>
+                          <option>Inactivo</option>
+                          <option>Retirado</option>
+                        </select>
+                        <div className="collab-inline-photo-tools">
+                          <EvidenceActions onChange={handleInlinePhoto} onCapture={(dataUrl) => setInlineDraft((prev) => prev ? { ...prev, foto: dataUrl } : prev)} />
+                        </div>
+                      </div>
+                      <div className="collab-edit-actions">
+                        <button onClick={() => saveInlineEdit(c)} style={{ background: primary }}><Save size={14} /> Guardar</button>
+                        <button onClick={cancelInlineEdit}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="collab-archived-view">
+                      <button onClick={() => setDetail(c)} className="collab-main-button">
+                        <p>{c.nombre}</p>
+                        <span>
+                          {c.estado} · {c.inactiveDate ? `Desde ${c.inactiveDate}` : "Sin fecha"} · {c.cargo || c.rol || "Sin cargo"}
+                        </span>
+                      </button>
+                      <div className="collab-archived-actions">
+                        <button onClick={() => startInlineEdit(c)} style={{ borderColor: primary, color: primary }}>
+                          Editar
+                        </button>
+                        <button onClick={() => reactivate(c.id)} style={{ background: primary }}>
+                          Reactivar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {detail && (
-        <CollaboratorDetail
-          colaborador={detail}
-          evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)}
-          planes={planesForColaborador(planes, detail.id)}
-          certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)}
-          onClose={() => setDetail(null)}
-          onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])}
-          primary={primary}
-        />
+        <DetailErrorBoundary key={detail.id} onClose={() => setDetail(null)}>
+          <CollaboratorDetail
+            colaborador={detail}
+            evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)}
+            planes={planesForColaborador(planes, detail.id)}
+            certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)}
+            onClose={() => setDetail(null)}
+            onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])}
+            primary={primary}
+            config={config}
+          />
+        </DetailErrorBoundary>
       )}
     </div>
   );
 }
 
-function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones, onClose, onAddCert, primary }) {
+function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones, onClose, onAddCert, primary, config }) {
   const [cert, setCert] = useState({ tipo: CERT_TYPES[0], vencimiento: "", alertaDias: 30, notas: "" });
   const orderedEvaluaciones = evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const chartData = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).map((e) => ({
     fecha: fmtFecha(e.fecha),
-    resultado: e.resultado?.percentage || 0,
+    resultado: evaluationPercent(e),
   }));
   const latest = orderedEvaluaciones[0];
   const average = evaluaciones.length
-    ? Math.round(evaluaciones.reduce((sum, e) => sum + (e.resultado?.percentage || 0), 0) / evaluaciones.length)
+    ? Math.round(evaluaciones.reduce((sum, e) => sum + evaluationPercent(e), 0) / evaluaciones.length)
     : 0;
-  const openIndividual = (e) => openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, colaborador, planes.find((p) => p.evaluationId === e.id)));
-  const openAccumulated = () => openPrintDocument(`Acumulado - ${colaborador.nombre}`, accumulatedHtml(colaborador, evaluaciones, planes));
+  const openIndividual = (e) => openPrintDocument(`Evaluacion - ${e.colaboradorNombre || colaborador.nombre}`, evaluationHtml(e, colaborador, planes.find((p) => p.evaluationId === e.id), config));
+  const openAccumulated = () => openPrintDocument(`Acumulado - ${colaborador.nombre}`, accumulatedHtml(colaborador, evaluaciones, planes, config));
   const shareIndividual = async (e) => {
+    const personName = e.colaboradorNombre || colaborador.nombre || "colaborador";
     await shareDocument({
-      filename: `evaluacion-${e.colaboradorNombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${fmtFecha(e.fecha).replace(/[^a-z0-9]+/gi, "-")}.html`,
-      html: evaluationHtml(e, colaborador, plans.find((p) => p.evaluationId === e.id)),
-      title: `Evaluacion - ${e.colaboradorNombre}`,
-      text: `Evaluacion ${e.colaboradorNombre}: ${e.resultado?.percentage || 0}%`,
+      filename: `evaluacion-${safeFilePart(personName)}-${safeFilePart(fmtFecha(e.fecha), "fecha")}.html`,
+      html: evaluationHtml(e, colaborador, planes.find((p) => p.evaluationId === e.id), config),
+      title: `Evaluacion - ${personName}`,
+      text: `Evaluacion ${personName}: ${evaluationPercent(e)}%`,
     });
   };
   const shareAccumulated = async () => {
     await shareDocument({
       filename: `acumulado-${colaborador.nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
-      html: accumulatedHtml(colaborador, evaluaciones, planes),
+      html: accumulatedHtml(colaborador, evaluaciones, planes, config),
       title: `Acumulado - ${colaborador.nombre}`,
       text: `Reporte acumulado de evaluaciones de ${colaborador.nombre}`,
     });
@@ -819,22 +1140,27 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
 
   return (
     <Modal title={colaborador.nombre} onClose={onClose} wide>
-      <div className="text-sm text-gray-600 space-y-1">
-        <p><b>ID:</b> {colaborador.id}</p>
-        <p><b>Documento:</b> {colaborador.documento || "Sin documento"}</p>
-        <p><b>Cargo:</b> {colaborador.cargo || colaborador.rol || "Sin cargo"}</p>
-        <p><b>Area:</b> {colaborador.area || colaborador.areas?.[0] || "Sin area"}</p>
-        <p><b>Supervisor:</b> {colaborador.supervisor || "Sin supervisor"}</p>
+      <div className="collab-detail-profile">
+        <div className="collab-detail-photo">
+          {colaborador.foto ? <img src={colaborador.foto} alt="" /> : <Users size={34} />}
+        </div>
+        <div className="collab-detail-info">
+          <p><b>ID</b>{colaborador.id}</p>
+          <p><b>Documento</b>{colaborador.documento || "Sin documento"}</p>
+          <p><b>Cargo</b>{colaborador.cargo || colaborador.rol || "Sin cargo"}</p>
+          <p><b>Área</b>{colaborador.area || colaborador.areas?.[0] || "Sin área"}</p>
+          <p><b>Supervisor</b>{colaborador.supervisor || "Sin supervisor"}</p>
+        </div>
       </div>
 
-      <div className="grid sm:grid-cols-[170px_1fr] gap-3 mt-4">
-        <div className="bg-gray-50 rounded-xl p-3 text-center">
-          <p className="text-xs text-gray-400 font-bold uppercase">Promedio individual</p>
-          <p className="text-3xl font-black" style={{ color: average >= 75 ? "#1E7A46" : "#B5333D" }}>{average}%</p>
-          <p className="text-xs text-gray-500">{evaluaciones.length} evaluacion(es)</p>
-          {latest && <Badge color={latest.resultado?.percentage >= 75 ? "#1E7A46" : "#B5333D"} bg={latest.resultado?.percentage >= 75 ? "#E4F4EA" : "#FBE7E8"}>Ultima {latest.resultado?.percentage || 0}%</Badge>}
+      <div className="collab-detail-analytics">
+        <div className="collab-detail-score">
+          <span>Promedio individual</span>
+          <strong style={{ color: average >= 75 ? "#1E7A46" : "#B5333D" }}>{average}%</strong>
+          <small>{evaluaciones.length} evaluación(es)</small>
+          {latest && <Badge color={evaluationPercent(latest) >= 75 ? "#1E7A46" : "#B5333D"} bg={evaluationPercent(latest) >= 75 ? "#E4F4EA" : "#FBE7E8"}>Ultima {evaluationPercent(latest)}%</Badge>}
         </div>
-        <div className="bg-gray-50 rounded-xl p-3 h-48">
+        <div className="collab-detail-chart">
           {chartData.length ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
@@ -854,7 +1180,7 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
       <button
         onClick={openAccumulated}
         disabled={!evaluaciones.length}
-        className="w-full mt-3 py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
+        className="collab-detail-primary-action"
         style={{ background: primary }}
       >
         <FileText size={15} /> Descargar PDF acumulado con observaciones
@@ -862,25 +1188,26 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
       <button
         onClick={shareAccumulated}
         disabled={!evaluaciones.length}
-        className="w-full mt-2 py-2.5 rounded-md font-bold border flex items-center justify-center gap-2 disabled:opacity-40"
+        className="collab-detail-secondary-action"
         style={{ borderColor: primary, color: primary }}
       >
         <Download size={15} /> Enviar acumulado por WhatsApp
       </button>
 
-      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h4>
+      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "inherit" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">
         {evaluaciones.length === 0 && <p className="text-xs text-gray-400">Sin evaluaciones registradas.</p>}
         {orderedEvaluaciones.map((e) => {
           const evidence = evidenceFromEvaluation(e);
           const plan = planes.find((p) => p.evaluationId === e.id);
+          const pct = evaluationPercent(e);
           return (
             <div key={e.id} className="border rounded-lg p-2">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold">{evaluationTypeLabel(e)}</p>
-                <Badge color={e.resultado.percentage >= 75 ? "#1E7A46" : "#B5333D"} bg={e.resultado.percentage >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado.percentage}%</Badge>
+                <Badge color={pct >= 75 ? "#1E7A46" : "#B5333D"} bg={pct >= 75 ? "#E4F4EA" : "#FBE7E8"}>{pct}%</Badge>
               </div>
-              <p className="text-xs text-gray-400">{fmtFecha(e.fecha)} · {e.resultado.level} · {e.resultado.recommendation}</p>
+              <p className="text-xs text-gray-400">{fmtFecha(e.fecha)} · {evaluationLevel(e)} · {evaluationRecommendation(e)}</p>
               <div className="mt-2 bg-gray-50 rounded-md p-2">
                 <p className="text-xs font-bold text-gray-500 uppercase">Observaciones</p>
                 <p className="text-sm text-gray-600">{e.observaciones || "Sin observaciones generales."}</p>
@@ -911,7 +1238,7 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
         })}
       </div>
 
-      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Certificaciones</h4>
+      <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "inherit" }}>Certificaciones</h4>
       <div className="space-y-2">
         {certificaciones.map((c) => (
           <div key={c.id} className="bg-gray-50 rounded-md px-2 py-1.5 text-xs flex items-center justify-between gap-2">
@@ -932,14 +1259,30 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
   );
 }
 
-function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, onEvaluaciones, onPlanes }) {
+function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, config, onEvaluaciones, onPlanes }) {
   const [colaboradorId, setColaboradorId] = useState("todos");
   const [perfil, setPerfil] = useState("todos");
+  const [expandedMonth, setExpandedMonth] = useState("");
   const filtradas = evaluaciones
     .filter((e) => colaboradorId === "todos" || e.colaboradorId === colaboradorId)
     .filter((e) => perfil === "todos" || (e.perfil || "cocina") === perfil)
     .slice()
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  const groupedByMonth = useMemo(() => {
+    const map = {};
+    filtradas.forEach((e) => {
+      const date = new Date(e.fecha);
+      const key = Number.isNaN(date.getTime()) ? "sin-fecha" : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      if (!map[key]) map[key] = { key, fecha: e.fecha, items: [] };
+      map[key].items.push(e);
+    });
+    return Object.values(map).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  }, [filtradas]);
+  const monthLabel = (iso) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "Sin fecha";
+    return date.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+  };
 
   const deleteEvaluation = (id) => {
     if (!window.confirm("Eliminar esta evaluacion?")) return;
@@ -950,28 +1293,32 @@ function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, o
   const openEvaluationReport = (e) => {
     const person = colaboradores.find((c) => c.id === e.colaboradorId);
     const plan = planes.find((p) => p.evaluationId === e.id);
-    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan));
+    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan, config));
   };
   const shareEvaluationReport = async (e) => {
     const person = colaboradores.find((c) => c.id === e.colaboradorId);
     const plan = planes.find((p) => p.evaluationId === e.id);
+    const personName = e.colaboradorNombre || person?.nombre || "colaborador";
     await shareDocument({
-      filename: `evaluacion-${e.colaboradorNombre.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
-      html: evaluationHtml(e, person, plan),
-      title: `Evaluacion - ${e.colaboradorNombre}`,
-      text: `Evaluacion ${e.colaboradorNombre}: ${e.resultado?.percentage || 0}%`,
+      filename: `evaluacion-${safeFilePart(personName)}.html`,
+      html: evaluationHtml(e, person, plan, config),
+      title: `Evaluacion - ${personName}`,
+      text: `Evaluacion ${personName}: ${evaluationPercent(e)}%`,
     });
   };
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h3>
-        <div className="grid sm:grid-cols-2 gap-2">
-          <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+    <div className="hr-history-shell">
+      <div className="hr-history-toolbar">
+        <div>
+          <h3>Historial de evaluaciones</h3>
+          <p>{filtradas.length} registro(s) encontrados</p>
+        </div>
+        <div className="hr-history-filters">
+          <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)}>
             <option value="todos">Todos los colaboradores</option>
             {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
-          <select value={perfil} onChange={(e) => setPerfil(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+          <select value={perfil} onChange={(e) => setPerfil(e.target.value)}>
             <option value="todos">Todos los perfiles</option>
             <option value="cocina">Cocina</option>
             <option value="servicio">Servicio al cliente</option>
@@ -980,33 +1327,47 @@ function HistorialEvaluaciones({ colaboradores, evaluaciones, planes, primary, o
       </div>
 
       {filtradas.length === 0 ? (
-        <p className="text-center text-sm text-gray-400 py-8">Sin evaluaciones registradas.</p>
+        <div className="hr-history-empty">Sin evaluaciones registradas.</div>
       ) : (
-        <div className="space-y-2">
-          {filtradas.map((e) => (
-            <div key={e.id} className="bg-white rounded-xl p-3 border border-gray-100">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-bold text-sm truncate">{e.colaboradorNombre}</p>
-                  <p className="text-xs text-gray-400">{evaluationTypeLabel(e)} · {e.perfil === "servicio" ? "Servicio al cliente" : "Cocina"} · {fmtFecha(e.fecha)}</p>
-                  <p className="text-xs text-gray-500 mt-1">{e.resultado?.level} · {e.resultado?.recommendation}</p>
-                  {e.observaciones && <p className="text-xs text-gray-600 mt-1">{e.observaciones}</p>}
-                </div>
-                <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                  <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
-                  <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
-                    <FileText size={12} /> PDF
-                  </button>
-                  <button onClick={() => shareEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
-                    <Download size={12} /> WhatsApp
-                  </button>
-                  <button onClick={() => deleteEvaluation(e.id)} className="px-2.5 py-1 rounded-md bg-red-500 text-white text-xs font-bold flex items-center gap-1">
-                    <Trash2 size={12} /> Eliminar
-                  </button>
-                </div>
+        <div className="hr-history-months">
+          {groupedByMonth.map((group) => {
+            const open = expandedMonth === group.key;
+            const average = Math.round(group.items.reduce((sum, e) => sum + evaluationPercent(e), 0) / group.items.length);
+            return (
+              <div key={group.key} className="hr-history-month-card">
+                <button onClick={() => setExpandedMonth(open ? "" : group.key)} className="hr-history-month-header">
+                  <div>
+                    <p>{monthLabel(group.fecha)}</p>
+                    <span>{group.items.length} evaluación(es)</span>
+                  </div>
+                  <div className="hr-history-month-meta">
+                    <Badge color={average >= 75 ? "#1E7A46" : "#B5333D"} bg={average >= 75 ? "#E4F4EA" : "#FBE7E8"}>{average}%</Badge>
+                    <ChevronRight size={16} className={`text-gray-400 transition-transform ${open ? "rotate-90" : ""}`} />
+                  </div>
+                </button>
+                {open && (
+                  <div className="hr-history-records">
+                    {group.items.map((e) => (
+                      <div key={e.id} className="hr-history-record">
+                        <div className="hr-history-record-info">
+                          <p>{e.colaboradorNombre}</p>
+                          <span>{evaluationTypeLabel(e)} · {e.perfil === "servicio" ? "Servicio al cliente" : "Cocina"} · {fmtFecha(e.fecha)}</span>
+                          <em>{evaluationLevel(e)} · {evaluationRecommendation(e)}</em>
+                          {e.observaciones && <small>{e.observaciones}</small>}
+                        </div>
+                        <div className="hr-history-record-actions">
+                          <Badge color={evaluationPercent(e) >= 75 ? "#1E7A46" : "#B5333D"} bg={evaluationPercent(e) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{evaluationPercent(e)}%</Badge>
+                          <button onClick={() => openEvaluationReport(e)} style={{ color: primary, borderColor: primary }}><FileText size={12} /> PDF</button>
+                          <button onClick={() => shareEvaluationReport(e)} style={{ color: primary, borderColor: primary }}><Download size={12} /> WhatsApp</button>
+                          <button onClick={() => deleteEvaluation(e.id)} className="danger"><Trash2 size={12} /> Eliminar</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1090,16 +1451,27 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
   const openEvaluationReport = (e) => {
     const person = colaboradores.find((c) => c.id === e.colaboradorId);
     const plan = planes.find((p) => p.evaluationId === e.id);
-    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan));
+    openPrintDocument(`Evaluacion - ${e.colaboradorNombre}`, evaluationHtml(e, person, plan, config));
+  };
+  const shareEvaluationReport = async (e) => {
+    const person = colaboradores.find((c) => c.id === e.colaboradorId);
+    const plan = planes.find((p) => p.evaluationId === e.id);
+    const personName = e.colaboradorNombre || person?.nombre || "colaborador";
+    await shareDocument({
+      filename: `evaluacion-${safeFilePart(personName)}.html`,
+      html: evaluationHtml(e, person, plan, config),
+      title: `Evaluacion - ${personName}`,
+      text: `Evaluacion ${personName}: ${evaluationPercent(e)}%`,
+    });
   };
 
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 space-y-2">
-        <div className="grid sm:grid-cols-4 gap-2">
+    <div className="evaluation-shell">
+      <div className="evaluation-top">
+        <div className="evaluation-filters">
           <select value={type} onChange={(e) => changeType(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
-            <option value="ingreso">Evaluacion tecnica de ingreso</option>
-            <option value="desempeno">Evaluacion de desempeno</option>
+            <option value="ingreso">Evaluación técnica de ingreso</option>
+            <option value="desempeno">Evaluación de desempeño</option>
           </select>
           <select value={profile} onChange={(e) => changeProfile(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
             <option value="cocina">Perfil cocina</option>
@@ -1113,20 +1485,23 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
             {REVIEW_PERIODS.map((p) => <option key={p}>{p}</option>)}
           </select>
         </div>
-        <div className="grid sm:grid-cols-[140px_1fr] gap-3 items-center">
+        <div className="evaluation-result-card">
           <StampGauge pct={result.percentage} />
-          <div className="text-sm text-gray-600">
-            <p><b>Puntaje:</b> {result.total} / {result.max}</p>
-            <p><b>Nivel:</b> {result.level}</p>
-            <p><b>Recomendacion:</b> {result.recommendation}</p>
+          <div className="evaluation-result-lines">
+            <div className="evaluation-info-pill"><span>Puntaje</span><strong>{result.total} / {result.max}</strong></div>
+            <div className="evaluation-info-pill"><span>Nivel</span><strong>{result.level}</strong></div>
+            <div className="evaluation-info-pill"><span>Recomendación</span><strong>{result.recommendation}</strong></div>
           </div>
         </div>
       </div>
 
       {grouped.map((section) => (
-        <div key={section.group} className="bg-white rounded-xl p-3">
-          <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
-          <div className="space-y-2">
+        <div key={section.group} className="evaluation-section">
+          <div className="evaluation-section-title">
+            <h3>{section.group}</h3>
+            <span>{section.criteria.length} aspectos</span>
+          </div>
+          <div className="evaluation-rows">
             {section.criteria.map((c) => (
               <CriterionRow
                 key={c.id}
@@ -1140,34 +1515,37 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
         </div>
       ))}
 
-      <div className="bg-white rounded-xl p-3 space-y-2">
+      <div className="evaluation-section">
         <textarea value={generalNotes} onChange={(e) => setGeneralNotes(e.target.value)} rows={3} placeholder="Observaciones generales" className="w-full border rounded-md px-3 py-2 text-sm" />
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="signature-grid" style={{ "--signature-columns": 2 }}>
           <SignaturePad label="Firma colaborador" value={firmaColaborador} onChange={setFirmaColaborador} />
           <SignaturePad label="Firma evaluador" value={firmaEvaluador} onChange={setFirmaEvaluador} />
         </div>
         <button onClick={save} disabled={!colaborador} className="w-full py-2.5 rounded-md font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40" style={{ background: primary }}>
           <Save size={16} /> Guardar evaluacion
         </button>
-        {saved && <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">Evaluacion guardada para {saved.colaboradorNombre}. {saved.resultado.percentage < 75 ? "Se creo plan de mejora automatico." : ""}</p>}
+        {saved && <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-1.5">Evaluacion guardada para {saved.colaboradorNombre}. {evaluationPercent(saved) < 75 ? "Se creo plan de mejora automatico." : ""}</p>}
       </div>
 
-      <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Historial de evaluaciones</h3>
+      <div className="evaluation-section">
+        <div className="evaluation-section-title">
+          <h3>Historial de evaluaciones</h3>
+          <span>{evaluaciones.length} registros</span>
+        </div>
         {evaluaciones.length === 0 ? (
           <p className="text-center text-sm text-gray-400 py-6">Sin evaluaciones registradas.</p>
         ) : (
-          <div className="space-y-2">
+          <div className="evaluation-history-list">
             {evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).map((e) => (
-              <div key={e.id} className="border border-gray-100 rounded-lg p-3">
+              <div key={e.id} className="evaluation-history-row">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-bold text-sm truncate">{e.colaboradorNombre}</p>
                     <p className="text-xs text-gray-400">{evaluationTypeLabel(e)} · {e.perfil === "servicio" ? "Servicio al cliente" : "Cocina"} · {fmtFecha(e.fecha)}</p>
-                    <p className="text-xs text-gray-500 mt-1">{e.resultado?.level} · {e.resultado?.recommendation}</p>
+                    <p className="text-xs text-gray-500 mt-1">{evaluationLevel(e)} · {evaluationRecommendation(e)}</p>
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                    <Badge color={(e.resultado?.percentage || 0) >= 75 ? "#1E7A46" : "#B5333D"} bg={(e.resultado?.percentage || 0) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{e.resultado?.percentage || 0}%</Badge>
+                    <Badge color={evaluationPercent(e) >= 75 ? "#1E7A46" : "#B5333D"} bg={evaluationPercent(e) >= 75 ? "#E4F4EA" : "#FBE7E8"}>{evaluationPercent(e)}%</Badge>
                     <button onClick={() => openEvaluationReport(e)} className="px-2.5 py-1 rounded-md border text-xs font-bold flex items-center gap-1" style={{ color: primary, borderColor: primary }}>
                       <FileText size={12} /> PDF
                     </button>
@@ -1190,10 +1568,13 @@ function Evaluaciones({ colaboradores, evaluaciones, planes, currentUser, primar
 
 function CriterionRow({ criterion, expanded, onToggleObservation, onChange }) {
   const handleEvidence = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    onChange(criterion.id, { evidence: await resizeImageToDataUrl(file, 420) });
+    const files = Array.from(e.target.files || []).slice(0, MAX_EVIDENCE_PER_ITEM);
+    if (!files.length) return;
+    const converted = await Promise.all(files.map((file) => resizeImageToDataUrl(file, 420)));
+    onChange(criterion.id, { evidence: [...normalizeEvidenceList(criterion.evidence), ...converted].slice(0, MAX_EVIDENCE_PER_ITEM) });
+    e.target.value = "";
   };
+  const evidenceList = normalizeEvidenceList(criterion.evidence);
   const scoreColors = {
     1: "#B5333D",
     2: "#D97706",
@@ -1202,16 +1583,14 @@ function CriterionRow({ criterion, expanded, onToggleObservation, onChange }) {
     5: "#1E7A46",
   };
   return (
-    <div className="grid xl:grid-cols-[minmax(230px,1fr)_220px_minmax(260px,1.15fr)_170px] lg:grid-cols-[minmax(220px,1fr)_210px_minmax(240px,1.1fr)_160px] gap-2 items-stretch border border-gray-100 rounded-xl p-2 bg-white/70">
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 flex items-center justify-center min-h-20">
-        <div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Aspecto</p>
-          <p className="text-sm font-semibold text-gray-700 leading-snug">{criterion.text}</p>
-        </div>
+    <div className="evaluation-criterion-row">
+      <div className="evaluation-aspect-cell">
+        <span>Aspecto</span>
+        <strong>{criterion.text}</strong>
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Puntaje</p>
-        <div className="grid grid-cols-5 gap-1.5">
+      <div className="evaluation-score-cell">
+        <span>Puntaje</span>
+        <div className="evaluation-score-buttons">
           {[1, 2, 3, 4, 5].map((n) => {
             const active = Number(criterion.score) === n;
             return (
@@ -1219,7 +1598,7 @@ function CriterionRow({ criterion, expanded, onToggleObservation, onChange }) {
                 key={n}
                 type="button"
                 onClick={() => onChange(criterion.id, { score: n })}
-                className="min-h-12 rounded-md border text-sm font-black"
+                className="evaluation-score-button"
                 style={{ borderColor: active ? scoreColors[n] : "#D8DCE1", background: active ? scoreColors[n] : "#FFFFFF", color: active ? "#FFFFFF" : "#5C6673" }}
               >
                 {n}
@@ -1228,53 +1607,137 @@ function CriterionRow({ criterion, expanded, onToggleObservation, onChange }) {
           })}
         </div>
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Observaciones</p>
-        <button type="button" onClick={onToggleObservation} className="w-full min-h-12 px-2 rounded-md border bg-white text-sm font-semibold text-gray-600 flex items-center justify-between gap-2">
+      <div className="evaluation-compact-cell">
+        <button type="button" onClick={onToggleObservation} className="evaluation-inline-toggle">
           <span className="truncate">{criterion.observation || "Observaciones"}</span>
           <ChevronRight size={15} className={`flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
         </button>
-        {expanded && (
-          <textarea value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} rows={2} autoFocus placeholder="Observaciones del aspecto evaluado" className="w-full mt-1 border rounded-md px-2 py-1.5 text-sm min-h-20" />
-        )}
       </div>
-      <div className="rounded-lg bg-gray-50 border border-gray-100 px-2 py-2">
-        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Evidencia</p>
-        <EvidenceActions onChange={handleEvidence} />
-        {criterion.evidence ? <img src={criterion.evidence} alt="" className="mt-2 h-16 w-full object-cover rounded-md border" /> : <div className="mt-2 h-16 rounded-md border border-dashed bg-white flex items-center justify-center text-[10px] text-gray-400">Sin evidencia</div>}
+      <div className="evaluation-evidence-cell">
+        <EvidenceActions onChange={handleEvidence} multiple />
+        <span>{evidenceList.length}/3</span>
       </div>
+      {expanded && (
+        <div className="evaluation-row-expander">
+          <textarea value={criterion.observation} onChange={(e) => onChange(criterion.id, { observation: e.target.value })} rows={2} autoFocus placeholder="Observaciones del aspecto evaluado" />
+        </div>
+      )}
+      {evidenceList.length > 0 && (
+        <div className="evaluation-evidence-strip">
+          {evidenceList.map((src, index) => <img key={index} src={src} alt="" />)}
+        </div>
+      )}
     </div>
   );
 }
 
 function Planes({ planes, colaboradores, primary, onPlanes }) {
   const update = (id, patch) => onPlanes(planes.map((p) => p.id === id ? { ...p, ...patch } : p));
+  const [openFolder, setOpenFolder] = useState("Abierto");
+  const folders = [
+    { id: "Abierto", label: "Abiertos", hint: "Requieren acción", color: "#B5333D", items: planes.filter((p) => p.estado === "Abierto") },
+    { id: "En seguimiento", label: "En proceso", hint: "Con seguimiento", color: "#B4750E", items: planes.filter((p) => p.estado === "En seguimiento") },
+    { id: "Cerrado", label: "Cerrados", hint: "Finalizados", color: "#1E7A46", items: planes.filter((p) => p.estado === "Cerrado") },
+  ];
   return (
-    <div className="space-y-2">
-      {planes.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Sin planes de mejora.</p>}
-      {planes.map((p) => (
-        <div key={p.id} className="bg-white rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="font-bold text-sm">{p.colaboradorNombre}</p>
-              <p className="text-xs text-gray-400">{colaboradores.find((c) => c.id === p.colaboradorId)?.area || "Sin area"}</p>
+    <div className="plans-shell">
+      <div className="plans-summary">
+        {folders.map((folder) => {
+          const open = openFolder === folder.id;
+          return (
+            <button
+              key={folder.id}
+              type="button"
+              onClick={() => setOpenFolder(open ? "" : folder.id)}
+              className={`plans-folder ${open ? "active" : ""}`}
+              style={open ? { borderColor: folder.color, boxShadow: `0 12px 26px ${folder.color}22` } : undefined}
+            >
+              <span className="plans-folder-icon" style={{ color: folder.color, background: `${folder.color}14` }}><ShieldCheck size={18} /></span>
+              <span className="plans-folder-text">
+                <strong>{folder.label}</strong>
+                <small>{folder.hint}</small>
+              </span>
+              <em style={{ color: folder.color }}>{folder.items.length}</em>
+            </button>
+          );
+        })}
+      </div>
+
+      {planes.length === 0 && <div className="plans-empty">Sin planes de mejora.</div>}
+
+      {folders.map((folder) => {
+        const open = openFolder === folder.id;
+        if (!open) return null;
+        return (
+          <div key={folder.id} className="plans-board">
+            <div className="plans-board-header">
+              <div>
+                <h3>{folder.label}</h3>
+                <p>{folder.items.length} plan(es) en esta carpeta</p>
+              </div>
+              <Badge color={folder.color} bg={`${folder.color}16`}>{folder.items.length}</Badge>
             </div>
-            <select value={p.estado} onChange={(e) => update(p.id, { estado: e.target.value })} className="border rounded-md px-2 py-1.5 text-xs font-bold">
-              <option>Abierto</option>
-              <option>En seguimiento</option>
-              <option>Cerrado</option>
-            </select>
+
+            {folder.items.length === 0 ? (
+              <div className="plans-empty">Sin planes en esta carpeta.</div>
+            ) : (
+              <div className="plans-grid">
+                {folder.items.map((p) => {
+                  const person = colaboradores.find((c) => c.id === p.colaboradorId);
+                  return (
+                    <div key={p.id} className="plans-card">
+                      <div className="plans-card-header">
+                        <div>
+                          <p>{p.colaboradorNombre || person?.nombre || "Sin colaborador"}</p>
+                          <span>{person?.area || person?.areas?.[0] || "Sin área"}</span>
+                        </div>
+                        <select value={p.estado} onChange={(e) => update(p.id, { estado: e.target.value })}>
+                          <option>Abierto</option>
+                          <option>En seguimiento</option>
+                          <option>Cerrado</option>
+                        </select>
+                      </div>
+
+                      <div className="plans-text-grid">
+                        <label>
+                          <span>Hallazgo</span>
+                          <textarea value={p.hallazgos || ""} onChange={(e) => update(p.id, { hallazgos: e.target.value })} rows={2} placeholder="Hallazgos" />
+                        </label>
+                        <label>
+                          <span>Acción</span>
+                          <textarea value={p.acciones || ""} onChange={(e) => update(p.id, { acciones: e.target.value })} rows={2} placeholder="Acciones" />
+                        </label>
+                      </div>
+
+                      <div className="plans-fields">
+                        <label>
+                          <span>Responsable</span>
+                          <input value={p.responsable || ""} onChange={(e) => update(p.id, { responsable: e.target.value })} placeholder="Responsable" />
+                        </label>
+                        <label>
+                          <span>Compromiso</span>
+                          <input type="date" value={p.fechaCompromiso || ""} onChange={(e) => update(p.id, { fechaCompromiso: e.target.value })} />
+                        </label>
+                        <label>
+                          <span>Cierre</span>
+                          <input type="date" value={p.fechaCierre || ""} onChange={(e) => update(p.id, { fechaCierre: e.target.value, estado: e.target.value ? "Cerrado" : p.estado })} />
+                        </label>
+                      </div>
+
+                      <div className="plans-actions">
+                        <button type="button" onClick={() => update(p.id, { estado: "En seguimiento" })} disabled={p.estado === "En seguimiento"}>Seguimiento</button>
+                        <button type="button" onClick={() => update(p.id, { estado: "Cerrado", fechaCierre: dateOnly(new Date()) })} style={{ background: primary, borderColor: primary, color: "#fff" }}>
+                          Cerrar plan
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <textarea value={p.hallazgos} onChange={(e) => update(p.id, { hallazgos: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm" rows={2} placeholder="Hallazgos" />
-          <textarea value={p.acciones} onChange={(e) => update(p.id, { acciones: e.target.value })} className="w-full border rounded-md px-2 py-1.5 text-sm" rows={2} placeholder="Acciones" />
-          <div className="grid sm:grid-cols-3 gap-2">
-            <input value={p.responsable} onChange={(e) => update(p.id, { responsable: e.target.value })} placeholder="Responsable" className="border rounded-md px-2 py-1.5 text-sm" />
-            <input type="date" value={p.fechaCompromiso} onChange={(e) => update(p.id, { fechaCompromiso: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm" />
-            <input type="date" value={p.fechaCierre} onChange={(e) => update(p.id, { fechaCierre: e.target.value, estado: e.target.value ? "Cerrado" : p.estado })} className="border rounded-md px-2 py-1.5 text-sm" />
-          </div>
-          <button onClick={() => update(p.id, { estado: "Cerrado", fechaCierre: dateOnly(new Date()) })} className="px-3 py-1.5 rounded-md text-xs font-bold text-white" style={{ background: primary }}>Cerrar plan</button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1283,6 +1746,7 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
   const blank = { nombre: "", tema: "", instructor: "", fecha: dateOnly(new Date()), duracion: "", asistentes: [], evaluacion: "", certificado: "No" };
   const [form, setForm] = useState(blank);
   const [editingId, setEditingId] = useState("");
+  const [expandedTraining, setExpandedTraining] = useState("");
   const toggle = (id) => setForm({ ...form, asistentes: form.asistentes.includes(id) ? form.asistentes.filter((x) => x !== id) : [...form.asistentes, id] });
   const save = () => {
     if (!form.nombre.trim()) return;
@@ -1317,7 +1781,7 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl p-3 space-y-2">
-        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "Oswald, sans-serif" }}><GraduationCap size={15} /> {editingId ? "Editar capacitacion" : "Registrar capacitacion"}</h3>
+        <h3 className="font-bold text-sm flex items-center gap-1.5" style={{ fontFamily: "inherit" }}><GraduationCap size={15} /> {editingId ? "Editar capacitacion" : "Registrar capacitacion"}</h3>
         <div className="grid sm:grid-cols-2 gap-2">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre de la capacitacion" className="border rounded-md px-3 py-2 text-sm" />
           <input value={form.tema} onChange={(e) => setForm({ ...form, tema: e.target.value })} placeholder="Tema" className="border rounded-md px-3 py-2 text-sm" />
@@ -1336,24 +1800,36 @@ function Capacitaciones({ capacitaciones, colaboradores, primary, onCapacitacion
         </div>
       </div>
 
-      {capacitaciones.map((t) => (
-        <div key={t.id} className="bg-white rounded-xl p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div><p className="font-bold text-sm">{t.nombre}</p><p className="text-xs text-gray-400">{t.fecha} · {t.tema} · {t.instructor || "Sin instructor"}</p></div>
-            <div className="flex items-center gap-2">
-              <Badge color={t.certificado === "Si" ? "#1E7A46" : "#5C6673"} bg={t.certificado === "Si" ? "#E4F4EA" : "#EAECEF"}>{t.asistentes.length} asistentes</Badge>
-              <button type="button" onClick={() => edit(t)} className="px-2.5 py-1 rounded-md border text-xs font-bold" style={{ color: primary, borderColor: primary }}>Editar</button>
-            </div>
+      {capacitaciones.map((t) => {
+        const open = expandedTraining === t.id;
+        return (
+          <div key={t.id} className="bg-white rounded-xl overflow-hidden">
+            <button type="button" onClick={() => setExpandedTraining(open ? "" : t.id)} className="w-full p-3 flex items-center justify-between gap-2 text-left">
+              <div className="min-w-0">
+                <p className="font-bold text-sm truncate">{t.nombre}</p>
+                <p className="text-xs text-gray-400">{t.fecha} · {t.asistentes.length} asistentes</p>
+              </div>
+              <Badge color={t.certificado === "Si" ? "#1E7A46" : "#5C6673"} bg={t.certificado === "Si" ? "#E4F4EA" : "#EAECEF"}>{t.certificado === "Si" ? "Certifica" : "Registro"}</Badge>
+            </button>
+            {open && (
+              <div className="border-t border-gray-100 p-3 text-sm text-gray-600 space-y-2">
+                <p><b>Tema:</b> {t.tema || "Sin tema"}</p>
+                <p><b>Instructor:</b> {t.instructor || "Sin instructor"}</p>
+                <p><b>Duracion:</b> {t.duracion || "Sin duracion"}</p>
+                <p><b>Evaluacion:</b> {t.evaluacion || "Sin evaluacion registrada"}</p>
+                <p><b>Asistentes:</b> {t.asistentes.map((a) => a.nombre).join(", ") || "Sin asistentes"}</p>
+                <button type="button" onClick={() => edit(t)} className="px-2.5 py-1 rounded-md border text-xs font-bold" style={{ color: primary, borderColor: primary }}>Editar capacitación</button>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-gray-600 mt-2">{t.asistentes.map((a) => a.nombre).join(", ") || "Sin asistentes"}</p>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, certificaciones, primary }) {
-  const latest = colaboradores.map((c) => ({ ...c, promedio: latestEvaluation(c.id, evaluaciones)?.resultado?.percentage || 0 })).sort((a, b) => b.promedio - a.promedio);
+function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, certificaciones, primary, config }) {
+  const latest = colaboradores.map((c) => ({ ...c, promedio: evaluationPercent(latestEvaluation(c.id, evaluaciones)) })).sort((a, b) => b.promedio - a.promedio);
 
   const aggregate = (field) => {
     const map = {};
@@ -1361,14 +1837,14 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
       const c = colaboradores.find((x) => x.id === e.colaboradorId);
       const key = c?.[field] || "Sin dato";
       if (!map[key]) map[key] = { nombre: key, total: 0, count: 0 };
-      map[key].total += e.resultado?.percentage || 0;
+      map[key].total += evaluationPercent(e);
       map[key].count += 1;
     });
     return Object.values(map).map((x) => ({ nombre: x.nombre, promedio: Math.round(x.total / x.count) }));
   };
 
   const skills = {};
-  evaluaciones.forEach((e) => e.criteria.forEach((c) => {
+  evaluaciones.forEach((e) => (e.criteria || []).forEach((c) => {
     if (!skills[c.text]) skills[c.text] = { text: c.text, total: 0, count: 0 };
     skills[c.text].total += Number(c.score || 0);
     skills[c.text].count += 1;
@@ -1376,7 +1852,7 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
   const skillRanking = Object.values(skills).map((s) => ({ text: s.text, avg: s.total / s.count })).sort((a, b) => a.avg - b.avg);
 
   const compliance = evaluaciones.reduce((acc, e) => {
-    const value = e.resultado?.percentage || 0;
+    const value = evaluationPercent(e);
     if (value >= 85) acc.cumple += 1;
     else if (value >= 70) acc.riesgo += 1;
     else acc.noCumple += 1;
@@ -1392,7 +1868,7 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(latest.map((c) => ({ Colaborador: c.nombre, Documento: c.documento, Cargo: c.cargo || c.rol, Area: c.area || c.areas?.[0], Supervisor: c.supervisor, Promedio: c.promedio }))), "Ranking");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(evaluaciones.map((e) => ({ Fecha: fmtFecha(e.fecha), Tipo: e.tipo, Periodicidad: e.periodicidad, Colaborador: e.colaboradorNombre, Evaluador: e.evaluador, Puntaje: e.resultado.total, Maximo: e.resultado.max, Porcentaje: e.resultado.percentage, Nivel: e.resultado.level, Recomendacion: e.resultado.recommendation }))), "Evaluaciones");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(evaluaciones.map((e) => ({ Fecha: fmtFecha(e.fecha), Tipo: e.tipo, Periodicidad: e.periodicidad, Colaborador: e.colaboradorNombre, Evaluador: e.evaluador, Puntaje: e.resultado?.total || 0, Maximo: e.resultado?.max || 0, Porcentaje: evaluationPercent(e), Nivel: evaluationLevel(e), Recomendacion: evaluationRecommendation(e) }))), "Evaluaciones");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(planes), "Planes");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(capacitaciones.map((t) => ({ ...t, asistentes: t.asistentes.map((a) => a.nombre).join(", ") }))), "Capacitaciones");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(certificaciones), "Certificaciones");
@@ -1403,48 +1879,82 @@ function Indicadores({ colaboradores, evaluaciones, planes, capacitaciones, cert
     const rows = latest.map((c) => `<tr><td>${c.nombre}</td><td>${c.cargo || c.rol || ""}</td><td>${c.area || c.areas?.[0] || ""}</td><td>${c.promedio}%</td></tr>`).join("");
     const w = window.open("", "_blank");
     if (!w) return;
-    w.document.write(`<html><head><title>Reporte Talento Humano</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#1f2937}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px;font-size:12px}h1{font-size:22px}</style></head><body><h1>Reporte Gestion del Talento Humano</h1><p>Evaluaciones: ${evaluaciones.length} · Planes activos: ${planes.filter((p) => p.estado !== "Cerrado").length}</p><table><thead><tr><th>Colaborador</th><th>Cargo</th><th>Area</th><th>Promedio</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+    w.document.write(`<html><head><title>Reporte Talento Humano</title><style>body{font-family:${printFontFamily(config)};padding:24px;color:#1f2937}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px;font-size:12px}h1{font-size:22px}</style></head><body><h1>Reporte Gestion del Talento Humano</h1><p>Evaluaciones: ${evaluaciones.length} · Planes activos: ${planes.filter((p) => p.estado !== "Cerrado").length}</p><table><thead><tr><th>Colaborador</th><th>Cargo</th><th>Area</th><th>Promedio</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
     w.document.close();
     w.print();
   };
 
+  const reportCards = [
+    { title: "Promedio por cargo", items: aggregate("cargo").map((x) => `${x.nombre}: ${x.promedio}%`) },
+    { title: "Promedio por supervisor", items: aggregate("supervisor").map((x) => `${x.nombre}: ${x.promedio}%`) },
+    { title: "Competencias más débiles", items: skillRanking.slice(0, 6).map((s) => `${s.text}: ${s.avg.toFixed(1)}/5`) },
+    { title: "Competencias más fuertes", items: skillRanking.slice(-6).reverse().map((s) => `${s.text}: ${s.avg.toFixed(1)}/5`) },
+  ];
+
   return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl p-3 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-        <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>Indicadores y reportes</h3>
-        <div className="flex gap-2">
-          <button onClick={exportExcel} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold border flex items-center justify-center gap-1.5" style={{ borderColor: primary, color: primary }}><Download size={15} /> Excel</button>
-          <button onClick={exportPdf} className="flex-1 sm:flex-none px-3 py-2 rounded-md text-sm font-bold text-white flex items-center justify-center gap-1.5" style={{ background: primary }}><FileText size={15} /> PDF</button>
+    <div className="indicators-shell">
+      <div className="indicators-top">
+        <div className="indicators-actions-card">
+          <div>
+            <h3>Indicadores y reportes</h3>
+            <p>{evaluaciones.length} evaluaciones · {planes.filter((p) => p.estado !== "Cerrado").length} planes activos</p>
+          </div>
+          <div className="indicators-actions">
+            <button onClick={exportExcel} style={{ borderColor: primary, color: primary }}><Download size={15} /> Excel</button>
+            <button onClick={exportPdf} style={{ background: primary, color: "#fff", borderColor: primary }}><FileText size={15} /> PDF</button>
+          </div>
+        </div>
+
+        <div className="indicators-chart-card">
+          <div className="indicators-card-title">
+            <h3>Estado de cumplimiento</h3>
+            <span>{evaluaciones.length} registros</span>
+          </div>
+          <div className="indicators-chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={complianceData} dataKey="value" nameKey="name" innerRadius={42} outerRadius={70} paddingAngle={2}>
+                  {complianceData.map((entry, index) => <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="indicators-legend">
+            {complianceData.map((item, index) => (
+              <span key={item.name}><i style={{ background: PIE_COLORS[index % PIE_COLORS.length] }} /> {item.name}: {item.value}</span>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Estado de cumplimiento</h3>
-        <div className="h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={complianceData} dataKey="value" nameKey="name" outerRadius={70} label>
-                {complianceData.map((entry, index) => <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+      <div className="indicators-report-grid">
+        {reportCards.map((card) => (
+          <div key={card.title} className="indicators-mini-card">
+            <div className="indicators-card-title">
+              <h3>{card.title}</h3>
+              <span>{card.items.length}</span>
+            </div>
+            {card.items.length ? (
+              <div className="indicators-list">
+                {card.items.map((item) => <p key={item}>{item}</p>)}
+              </div>
+            ) : (
+              <div className="indicators-empty">Sin datos</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="indicators-ranking-card">
+        <div className="indicators-card-title">
+          <h3>Ranking de colaboradores</h3>
+          <span>{latest.length} colaboradores</span>
         </div>
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <SimpleList title="Promedio por cargo" empty="Sin datos" items={aggregate("cargo").map((x) => `${x.nombre}: ${x.promedio}%`)} />
-        <SimpleList title="Promedio por supervisor" empty="Sin datos" items={aggregate("supervisor").map((x) => `${x.nombre}: ${x.promedio}%`)} />
-        <SimpleList title="Competencias mas debiles" empty="Sin datos" items={skillRanking.slice(0, 6).map((s) => `${s.text}: ${s.avg.toFixed(1)}/5`)} />
-        <SimpleList title="Competencias mas fuertes" empty="Sin datos" items={skillRanking.slice(-6).reverse().map((s) => `${s.text}: ${s.avg.toFixed(1)}/5`)} />
-      </div>
-
-      <div className="bg-white rounded-xl p-3">
-        <h3 className="font-bold text-sm mb-2" style={{ fontFamily: "Oswald, sans-serif" }}>Ranking de colaboradores</h3>
-        <div className="space-y-1.5">
+        <div className="indicators-ranking-list">
           {latest.map((c, idx) => (
-            <div key={c.id} className="flex items-center justify-between bg-gray-50 rounded-md px-2 py-1.5">
-              <p className="text-sm font-semibold truncate">{idx + 1}. {c.nombre}</p>
+            <div key={c.id} className="indicators-ranking-row">
+              <p>{idx + 1}. {c.nombre}</p>
               <Badge color={c.promedio >= 75 ? "#1E7A46" : "#B5333D"} bg={c.promedio >= 75 ? "#E4F4EA" : "#FBE7E8"}>{c.promedio}%</Badge>
             </div>
           ))}
@@ -1475,7 +1985,7 @@ function Plantillas({ config, primary, onConfig }) {
       {template.map((section) => (
         <div key={section.group} className="bg-white rounded-xl p-3">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-bold text-sm" style={{ fontFamily: "Oswald, sans-serif" }}>{section.group}</h3>
+            <h3 className="font-bold text-sm" style={{ fontFamily: "inherit" }}>{section.group}</h3>
             <button onClick={() => addItem(section.group)} className="px-2 py-1 rounded-md text-xs font-bold border" style={{ borderColor: primary, color: primary }}>Agregar aspecto</button>
           </div>
           <div className="space-y-1.5">

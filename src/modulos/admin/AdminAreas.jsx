@@ -6,7 +6,6 @@ export default function AdminAreas({ areas, onAreas, primary }) {
       const [nuevaArea, setNuevaArea] = useState("");
       const [nuevoItem, setNuevoItem] = useState({});
       const [expand, setExpand] = useState(null);
-      const [editandoArea, setEditandoArea] = useState(null);
       const [editandoItem, setEditandoItem] = useState(null);
     
       const agregarArea = () => {
@@ -117,4 +116,3 @@ export default function AdminAreas({ areas, onAreas, primary }) {
         </div>
       );
     }
-    

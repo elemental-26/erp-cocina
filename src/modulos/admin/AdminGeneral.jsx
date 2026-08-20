@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ImagePlus, Save } from "lucide-react";
+import { ImagePlus, Palette, Save } from "lucide-react";
 
 import { resizeImageToDataUrl } from "../../utils/imageUtils";
 
@@ -63,9 +63,13 @@ export default function AdminGeneral({
             {logo ? <img src={logo} className="w-full h-full object-contain" /> : <ImagePlus size={20} className="text-gray-300" />}
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="px-4 py-1.5 rounded-md text-xs font-bold border cursor-pointer inline-flex items-center gap-1.5 w-fit"
-              style={{ borderColor: primary, color: primary }}>
-              <ImagePlus size={13} /> {logoBusy ? "Cargando…" : "Subir imagen"}
+            <label
+              className="file-icon-button"
+              title={logoBusy ? "Cargando imagen" : "Subir imagen"}
+              aria-label={logoBusy ? "Cargando imagen" : "Subir imagen"}
+              style={{ borderColor: primary, color: primary }}
+            >
+              <ImagePlus size={18} />
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogo} className="hidden" disabled={logoBusy} />
             </label>
             {logo && (

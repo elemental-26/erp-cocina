@@ -1,5 +1,5 @@
 import { LogOut, ClipboardCheck } from "lucide-react";
-import { useTheme } from "../../theme/ThemeContext";
+import useTheme from "../../theme/useTheme";
 export default function Header({
   config,
   primary,
@@ -35,7 +35,7 @@ export default function Header({
           <h1
             className={`${fonts.title} font-bold truncate`}
             style={{
-              fontFamily: "Oswald, sans-serif"
+              fontFamily: "inherit"
             }}
           >
             {config.nombre}

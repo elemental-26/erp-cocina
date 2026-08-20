@@ -7,7 +7,7 @@ export default function Modal({ title, onClose, children, wide }) {
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
           <h3
             className="font-bold text-[15px]"
-            style={{ fontFamily: "Oswald, sans-serif" }}
+            style={{ fontFamily: "inherit" }}
           >
             {title}
           </h3>

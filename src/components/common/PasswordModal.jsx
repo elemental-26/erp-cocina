@@ -26,7 +26,8 @@ export default function PasswordModal({
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
-            pw === usuario.password ? onSuccess() : setErr(true);
+            if (pw === usuario.password) onSuccess();
+            else setErr(true);
           }
         }}
         className="w-full border rounded-md px-4 py-2 text-center text-lg tracking-widest"
