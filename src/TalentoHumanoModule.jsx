@@ -576,6 +576,33 @@ function includeInStats(colaborador, months = 6) {
   return new Date(colaborador.inactiveDate) >= cutoff;
 }
 
+function normalizePersonName(value = "") {
+  return value.toString().trim().toLowerCase();
+}
+
+function samePersonName(left, right) {
+  const normalizedLeft = normalizePersonName(left);
+  return normalizedLeft && normalizedLeft === normalizePersonName(right);
+}
+
+function personMatchesRecord(record, colaborador, idKeys = [], nameKeys = []) {
+  if (!record || !colaborador) return false;
+  if (idKeys.some((key) => record[key] && record[key] === colaborador.id)) return true;
+  return nameKeys.some((key) => samePersonName(record[key], colaborador.nombre));
+}
+
+function trainingIncludesCollaborator(training, colaborador) {
+  return (training?.asistentes || []).some((assistant) => {
+    if (typeof assistant === "string") return assistant === colaborador.id || samePersonName(assistant, colaborador.nombre);
+    return assistant?.id === colaborador.id || samePersonName(assistant?.nombre, colaborador.nombre);
+  });
+}
+
+function inspectionIncludesCollaborator(inspeccion, colaborador) {
+  if (personMatchesRecord(inspeccion, colaborador, ["responsableId"], ["responsableNombre", "responsable"])) return true;
+  return (inspeccion?.epp || []).some((entry) => entry?.personaId === colaborador.id || samePersonName(entry?.personaNombre, colaborador.nombre));
+}
+
 function Badge({ children, color, bg }) {
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide" style={{ color, background: bg }}>
@@ -708,8 +735,23 @@ function SimpleList({ title, items, empty }) {
   );
 }
 
+function RelatedBlock({ title, count, empty, children }) {
+  return (
+    <div className="collab-related-card">
+      <div className="collab-related-head">
+        <h4>{title}</h4>
+        <span>{count}</span>
+      </div>
+      <div className="collab-related-body">
+        {count ? children : <em>{empty}</em>}
+      </div>
+    </div>
+  );
+}
+
 export default function TalentoHumanoView({
   colaboradores, evaluaciones, planes, capacitaciones, certificaciones,
+  inspecciones = [], hallazgos = [], desviaciones = [],
   usuarios, areas, currentUser, primary, accent, config,
   onColaboradores, onEvaluaciones, onPlanes, onCapacitaciones, onCertificaciones, onConfig,
 }) {
@@ -759,7 +801,7 @@ export default function TalentoHumanoView({
       </div>
 
       {sub === "dashboard" && <Dashboard stats={stats} colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} primary={primary} accent={accent} />}
-      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} certificaciones={certificaciones} areas={areas} usuarios={usuarios} primary={primary} config={config} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
+      {sub === "colaboradores" && <Colaboradores colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} capacitaciones={capacitaciones} certificaciones={certificaciones} inspecciones={inspecciones} hallazgos={hallazgos} desviaciones={desviaciones} areas={areas} usuarios={usuarios} primary={primary} config={config} onColaboradores={onColaboradores} onCertificaciones={onCertificaciones} />}
       {sub === "evaluaciones" && <Evaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} currentUser={currentUser} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
       {sub === "historial" && <HistorialEvaluaciones colaboradores={colaboradores} evaluaciones={evaluaciones} planes={planes} primary={primary} config={config} onEvaluaciones={onEvaluaciones} onPlanes={onPlanes} />}
       {sub === "planes" && <Planes planes={planes} colaboradores={colaboradores} primary={primary} onPlanes={onPlanes} />}
@@ -841,7 +883,7 @@ function Dashboard({ stats, colaboradores, evaluaciones, planes, certificaciones
   );
 }
 
-function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, areas, usuarios, primary, config, onColaboradores, onCertificaciones }) {
+function Colaboradores({ colaboradores, evaluaciones, planes, capacitaciones, certificaciones, inspecciones, hallazgos, desviaciones, areas, usuarios, primary, config, onColaboradores, onCertificaciones }) {
   const blank = { nombre: "", documento: "", cargo: "", area: areas[0]?.nombre || "", areas: areas[0]?.nombre ? [areas[0].nombre] : [], fechaIngreso: dateOnly(new Date()), estado: "Activo", inactiveDate: "", supervisor: "", foto: null };
   const [form, setForm] = useState(blank);
   const [inlineEditId, setInlineEditId] = useState(null);
@@ -1000,7 +1042,7 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
                 <div className="collab-avatar">
                   {c.foto ? <img src={c.foto} className="w-full h-full object-cover" alt="" /> : <Users size={20} className="text-gray-300" />}
                 </div>
-                <button onClick={() => setDetail(c)} className="collab-main-button">
+                <button type="button" onClick={() => setDetail(c)} className="collab-main-button" title="Ver hoja de vida laboral">
                   <p>{c.nombre}</p>
                   <span>{c.cargo || c.rol || "Sin cargo"} · {c.area || c.areas?.[0] || "Sin área"}</span>
                 </button>
@@ -1066,7 +1108,7 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
                     </div>
                   ) : (
                     <div className="collab-archived-view">
-                      <button onClick={() => setDetail(c)} className="collab-main-button">
+                      <button type="button" onClick={() => setDetail(c)} className="collab-main-button" title="Ver hoja de vida laboral">
                         <p>{c.nombre}</p>
                         <span>
                           {c.estado} · {c.inactiveDate ? `Desde ${c.inactiveDate}` : "Sin fecha"} · {c.cargo || c.rol || "Sin cargo"}
@@ -1095,7 +1137,11 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
             colaborador={detail}
             evaluaciones={evaluaciones.filter((e) => e.colaboradorId === detail.id)}
             planes={planesForColaborador(planes, detail.id)}
+            capacitaciones={capacitaciones.filter((t) => trainingIncludesCollaborator(t, detail))}
             certificaciones={certificaciones.filter((c) => c.colaboradorId === detail.id)}
+            inspecciones={inspecciones.filter((i) => inspectionIncludesCollaborator(i, detail))}
+            hallazgos={hallazgos.filter((h) => personMatchesRecord(h, detail, ["responsableId"], ["responsable", "responsableNombre"]))}
+            desviaciones={desviaciones.filter((d) => personMatchesRecord(d, detail, ["responsableId", "responsableCierreId", "reportadoPorId"], ["responsableNombre", "responsable", "responsableCierre", "reportadoPor", "quienPresenta"]))}
             onClose={() => setDetail(null)}
             onAddCert={(cert) => onCertificaciones([{ id: genId(), colaboradorId: detail.id, colaboradorNombre: detail.nombre, ...cert }, ...certificaciones])}
             primary={primary}
@@ -1107,7 +1153,40 @@ function Colaboradores({ colaboradores, evaluaciones, planes, certificaciones, a
   );
 }
 
-function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones, onClose, onAddCert, primary, config }) {
+function collaboratorLaborHtml({ colaborador, evaluaciones, planes, capacitaciones, certificaciones, inspecciones, hallazgos, desviaciones, config }) {
+  const rows = (items, render, empty = "Sin registros") => (
+    items.length ? items.map(render).join("") : `<tr><td colspan="4">${empty}</td></tr>`
+  );
+  return `
+<html><head><title>Hoja de vida laboral - ${escapeHtml(colaborador.nombre)}</title><style>
+${printWatermarkCss()}
+body{font-family:${printFontFamily(config)};padding:24px;color:#243040;background:#fff}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:15px;margin:20px 0 8px;color:#1F2B3A}
+.print-content{position:relative;z-index:1}.header{display:flex;gap:16px;align-items:center;border-bottom:3px solid #1F2B3A;padding-bottom:14px}
+.photo{width:96px;height:96px;border:1px solid #D8DCE1;border-radius:14px;object-fit:cover;background:#F1F3F4}
+.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.box{border:1px solid #E5E7EB;border-radius:10px;padding:8px;background:#F8FAFC;font-size:12px}.box b{display:block;font-size:10px;text-transform:uppercase;color:#7C8795;margin-bottom:3px}
+table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #E5E7EB;padding:7px;font-size:11px;vertical-align:top;text-align:left}th{background:#F1F3F4;color:#475569;text-transform:uppercase;font-size:10px}
+</style></head><body>${printWatermarkHtml(config)}<div class="print-content">
+<div class="header">${colaborador.foto ? `<img class="photo" src="${colaborador.foto}" />` : `<div class="photo"></div>`}<div><h1>Hoja de vida laboral</h1><p>${escapeHtml(colaborador.nombre || "Sin nombre")}</p><p>${escapeHtml(storedErpName())}</p></div></div>
+<div class="meta">
+<div class="box"><b>Documento</b>${escapeHtml(colaborador.documento || "Sin documento")}</div>
+<div class="box"><b>Cargo</b>${escapeHtml(colaborador.cargo || colaborador.rol || "Sin cargo")}</div>
+<div class="box"><b>Área</b>${escapeHtml(colaborador.area || colaborador.areas?.[0] || "Sin área")}</div>
+<div class="box"><b>Estado</b>${escapeHtml(colaborador.estado || "Activo")}</div>
+<div class="box"><b>Ingreso</b>${escapeHtml(colaborador.fechaIngreso || "Sin fecha")}</div>
+<div class="box"><b>Supervisor</b>${escapeHtml(colaborador.supervisor || "Sin supervisor")}</div>
+</div>
+<h2>Evaluaciones</h2><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Resultado</th><th>Observaciones</th></tr></thead><tbody>${rows(evaluaciones, (e) => `<tr><td>${fmtFecha(e.fecha)}</td><td>${escapeHtml(evaluationTypeLabel(e))}</td><td>${evaluationPercent(e)}%</td><td>${escapeHtml(e.observaciones || evaluationRecommendation(e))}</td></tr>`)}</tbody></table>
+<h2>Planes de mejora</h2><table><thead><tr><th>Estado</th><th>Hallazgo</th><th>Acción</th><th>Compromiso</th></tr></thead><tbody>${rows(planes, (p) => `<tr><td>${escapeHtml(p.estado || "")}</td><td>${escapeHtml(p.hallazgos || "")}</td><td>${escapeHtml(p.acciones || "")}</td><td>${escapeHtml(p.fechaCompromiso || "")}</td></tr>`)}</tbody></table>
+<h2>Capacitaciones</h2><table><thead><tr><th>Fecha</th><th>Nombre</th><th>Instructor</th><th>Certifica</th></tr></thead><tbody>${rows(capacitaciones, (t) => `<tr><td>${escapeHtml(t.fecha || "")}</td><td>${escapeHtml(t.nombre || "")}</td><td>${escapeHtml(t.instructor || "")}</td><td>${escapeHtml(t.certificado || "No")}</td></tr>`)}</tbody></table>
+<h2>Certificaciones</h2><table><thead><tr><th>Tipo</th><th>Vencimiento</th><th>Días</th><th>Notas</th></tr></thead><tbody>${rows(certificaciones, (c) => `<tr><td>${escapeHtml(c.tipo || "")}</td><td>${escapeHtml(c.vencimiento || "")}</td><td>${daysUntil(c.vencimiento)}</td><td>${escapeHtml(c.notas || "")}</td></tr>`)}</tbody></table>
+<h2>Inspecciones relacionadas</h2><table><thead><tr><th>Fecha</th><th>Tipo/área</th><th>Cumplimiento</th><th>Observaciones</th></tr></thead><tbody>${rows(inspecciones, (i) => `<tr><td>${fmtFecha(i.fecha)}</td><td>${escapeHtml(i.tipo === "epp" ? "EPP" : i.areaNombre || "Inspección")}</td><td>${Number(i.cumplimientoPct || 0)}%</td><td>${escapeHtml(i.observaciones || "")}</td></tr>`)}</tbody></table>
+<h2>Hallazgos y llamados de atención</h2><table><thead><tr><th>Fecha</th><th>Estado</th><th>Descripción</th><th>Notas</th></tr></thead><tbody>${rows(hallazgos, (h) => `<tr><td>${fmtFecha(h.fecha)}</td><td>${escapeHtml(h.estado || "")}</td><td>${escapeHtml(h.descripcion || "")}</td><td>${escapeHtml(h.notas || "")}</td></tr>`)}</tbody></table>
+<h2>Desviaciones</h2><table><thead><tr><th>Fecha</th><th>Estado</th><th>Tipo</th><th>Descripción</th></tr></thead><tbody>${rows(desviaciones, (d) => `<tr><td>${fmtFecha(d.fecha)}</td><td>${escapeHtml(d.estado || "")}</td><td>${escapeHtml(d.tipo || d.tipoDesviacion || "")}</td><td>${escapeHtml(d.descripcion || d.anotacion || "")}</td></tr>`)}</tbody></table>
+</div></body></html>`;
+}
+
+function CollaboratorDetail({ colaborador, evaluaciones, planes, capacitaciones = [], certificaciones, inspecciones = [], hallazgos = [], desviaciones = [], onClose, onAddCert, primary, config }) {
   const [cert, setCert] = useState({ tipo: CERT_TYPES[0], vencimiento: "", alertaDias: 30, notas: "" });
   const orderedEvaluaciones = evaluaciones.slice().sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   const chartData = evaluaciones.slice().sort((a, b) => new Date(a.fecha) - new Date(b.fecha)).map((e) => ({
@@ -1137,6 +1216,17 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
       text: `Reporte acumulado de evaluaciones de ${colaborador.nombre}`,
     });
   };
+  const openLaborProfile = () => openPrintDocument(`Hoja de vida laboral - ${colaborador.nombre}`, collaboratorLaborHtml({
+    colaborador,
+    evaluaciones,
+    planes,
+    capacitaciones,
+    certificaciones,
+    inspecciones,
+    hallazgos,
+    desviaciones,
+    config,
+  }));
 
   return (
     <Modal title={colaborador.nombre} onClose={onClose} wide>
@@ -1193,6 +1283,36 @@ function CollaboratorDetail({ colaborador, evaluaciones, planes, certificaciones
       >
         <Download size={15} /> Enviar acumulado por WhatsApp
       </button>
+      <button
+        onClick={openLaborProfile}
+        className="collab-detail-secondary-action"
+        style={{ borderColor: primary, color: primary }}
+      >
+        <FileText size={15} /> Imprimir hoja de vida laboral
+      </button>
+
+      <div className="collab-related-grid">
+        <RelatedBlock title="Inspecciones" count={inspecciones.length} empty="Sin inspecciones relacionadas">
+          {inspecciones.slice(0, 6).map((i) => (
+            <p key={i.id}>{fmtFecha(i.fecha)} · {i.tipo === "epp" ? "EPP" : i.areaNombre || "Inspección"} · {Number(i.cumplimientoPct || 0)}%</p>
+          ))}
+        </RelatedBlock>
+        <RelatedBlock title="Capacitaciones" count={capacitaciones.length} empty="Sin capacitaciones">
+          {capacitaciones.slice(0, 6).map((t) => (
+            <p key={t.id}>{t.fecha || "Sin fecha"} · {t.nombre || "Capacitación"} · {t.certificado === "Si" ? "Certifica" : "Registro"}</p>
+          ))}
+        </RelatedBlock>
+        <RelatedBlock title="Hallazgos y llamados" count={hallazgos.length} empty="Sin llamados ni hallazgos">
+          {hallazgos.slice(0, 6).map((h) => (
+            <p key={h.id}>{fmtFecha(h.fecha)} · {h.estado || "Abierto"} · {h.descripcion || "Hallazgo"}</p>
+          ))}
+        </RelatedBlock>
+        <RelatedBlock title="Desviaciones" count={desviaciones.length} empty="Sin desviaciones">
+          {desviaciones.slice(0, 6).map((d) => (
+            <p key={d.id}>{fmtFecha(d.fecha)} · {d.estado || "Abierta"} · {d.tipo || d.tipoDesviacion || "Desviación"}</p>
+          ))}
+        </RelatedBlock>
+      </div>
 
       <h4 className="font-bold text-sm mt-4 mb-2" style={{ fontFamily: "inherit" }}>Historial de evaluaciones</h4>
       <div className="space-y-2">

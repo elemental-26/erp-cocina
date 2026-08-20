@@ -3,11 +3,20 @@ import TalentoHumanoView from "./TalentoHumanoModule";
 import EstandarizacionCocinaView from "./EstandarizacionCocinaModule";
 import { DEFAULT_STD_DATA } from "./data/estandarizacionCocinaData";
 import {
+  clearCloudSession,
+  getCloudSession,
+  isCloudConfigReady,
+  pullCloudRecords,
+  pushCloudRecord,
+  pushCloudSnapshot,
+  signInCloud,
+} from "./services/supabaseSyncService";
+import {
   ClipboardCheck, AlertTriangle,
   Settings, Users, BarChart3, ListChecks, LogOut, Plus, Trash2, Pencil,
   Lock, ChevronRight, Download, ShieldCheck, AlertCircle, UserPlus,
   Palette, ImagePlus, X, Save, Building2, Check, Info, KeyRound,
-  BriefcaseBusiness, FileText, ChefHat, Home
+  BriefcaseBusiness, FileText, ChefHat, Home, PackageCheck
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -64,6 +73,119 @@ const STATUS = [
   { value: "no_cumple", label: "No cumple", short: "No cumple", color: "#B5333D", bg: "#FBE7E8", border: "#B5333D" },
   { value: "no_aplica", label: "No aplica", short: "N/A", color: "#5C6673", bg: "#EAECEF", border: "#5C6673" },
 ];
+
+const ERP_MODULES = [
+  { id: "calidad", label: "Calidad", description: "Inspecciones, EPP, historial, análisis, hallazgos y desviaciones." },
+  { id: "talento", label: "Talento", description: "Colaboradores, evaluaciones, capacitaciones, planes y certificados." },
+  { id: "cocina", label: "Fichas", description: "Fichas técnicas, insumos, preparaciones y mermas." },
+  { id: "pedidos", label: "Pedidos", description: "Requisiciones consolidadas por servicio, comedor y centro de costo." },
+  { id: "admin", label: "Admin", description: "Configuración, usuarios, roles, catálogos y backup." },
+];
+
+const ERP_ACTIONS = [
+  { id: "view", label: "Ver" },
+  { id: "create", label: "Crear" },
+  { id: "edit", label: "Editar" },
+  { id: "delete", label: "Eliminar" },
+  { id: "print", label: "Imprimir" },
+  { id: "share", label: "WhatsApp" },
+];
+
+function allModulePermissions(value) {
+  return ERP_ACTIONS.reduce((acc, action) => ({ ...acc, [action.id]: value }), {});
+}
+
+function rolePermissions(moduleIds, value = true) {
+  return ERP_MODULES.reduce((acc, module) => ({
+    ...acc,
+    [module.id]: moduleIds.includes(module.id) ? allModulePermissions(value) : allModulePermissions(false),
+  }), {});
+}
+
+const DEFAULT_ROLE_PROFILES = {
+  administrador: {
+    id: "administrador",
+    label: "Administrador",
+    description: "Acceso total a módulos, usuarios, configuración y reportes.",
+    system: true,
+    permissions: rolePermissions(ERP_MODULES.map((module) => module.id), true),
+  },
+  supervisor: {
+    id: "supervisor",
+    label: "Supervisor",
+    description: "Gestiona calidad, inspecciones, hallazgos y desviaciones.",
+    permissions: rolePermissions(["calidad", "cocina", "pedidos"], true),
+  },
+  talento: {
+    id: "talento",
+    label: "Talento humano",
+    description: "Gestiona colaboradores, evaluaciones, capacitación y certificados.",
+    permissions: rolePermissions(["talento"], true),
+  },
+  produccion: {
+    id: "produccion",
+    label: "Producción",
+    description: "Consulta y mantiene fichas, insumos y preparaciones.",
+    permissions: rolePermissions(["cocina", "pedidos"], true),
+  },
+  hse: {
+    id: "hse",
+    label: "HSE",
+    description: "Consulta calidad, EPP, hallazgos y desviaciones.",
+    permissions: {
+      ...rolePermissions(["calidad"], true),
+      talento: allModulePermissions(false),
+      cocina: allModulePermissions(false),
+      pedidos: allModulePermissions(false),
+      admin: allModulePermissions(false),
+    },
+  },
+  consulta: {
+    id: "consulta",
+    label: "Consulta",
+    description: "Solo lectura e impresión de módulos autorizados.",
+    permissions: ERP_MODULES.reduce((acc, module) => ({
+      ...acc,
+      [module.id]: { view: module.id !== "admin", create: false, edit: false, delete: false, print: module.id !== "admin", share: false },
+    }), {}),
+  },
+  usuario: {
+    id: "usuario",
+    label: "Operario",
+    description: "Diligencia inspecciones asignadas. Sin acceso administrativo.",
+    permissions: {
+      ...rolePermissions(["calidad"], false),
+      calidad: { view: true, create: true, edit: false, delete: false, print: false, share: false },
+    },
+  },
+};
+
+function normalizeRoleProfiles(config) {
+  const saved = config?.roleProfiles || {};
+  const merged = { ...DEFAULT_ROLE_PROFILES, ...saved };
+  Object.entries(merged).forEach(([roleId, role]) => {
+    merged[roleId] = {
+      ...role,
+      id: role.id || roleId,
+      permissions: ERP_MODULES.reduce((acc, module) => ({
+        ...acc,
+        [module.id]: { ...allModulePermissions(false), ...(role.permissions?.[module.id] || {}) },
+      }), {}),
+    };
+  });
+  return merged;
+}
+
+function userRoleId(user) {
+  return user?.roleId || user?.rol || "usuario";
+}
+
+function canAccess(config, user, moduleId, action = "view") {
+  if (!user) return false;
+  if (user.rol === "administrador" || userRoleId(user) === "administrador") return true;
+  const profiles = normalizeRoleProfiles(config);
+  return Boolean(profiles[userRoleId(user)]?.permissions?.[moduleId]?.[action]);
+}
 const statusInfo = (v) => STATUS.find((s) => s.value === v) || STATUS[3];
 const MAX_EVIDENCE_PER_ITEM = 3;
 
@@ -266,15 +388,70 @@ const MAX_AREAS_POR_PERSONA = 3;
 
 /* ---------------------------------- almacenamiento ---------------------------------- */
 
+const STORAGE_DB_NAME = "erp-cocina-storage";
+const STORAGE_DB_VERSION = 1;
+const STORAGE_STORE = "keyval";
+const STORAGE_DB_MARKER = "__erp_indexeddb__:";
+const LOCAL_STORAGE_SAFE_LIMIT = 180000;
+let activeCloudConfig = null;
+
+function setActiveCloudConfig(config) {
+  activeCloudConfig = isCloudConfigReady(config) ? config : null;
+}
+
+function openStorageDb() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+      reject(new Error("IndexedDB no disponible"));
+      return;
+    }
+    const request = indexedDB.open(STORAGE_DB_NAME, STORAGE_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORAGE_STORE)) db.createObjectStore(STORAGE_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("No se pudo abrir IndexedDB"));
+  });
+}
+
+async function idbGet(key) {
+  const db = await openStorageDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORAGE_STORE, "readonly");
+    const req = tx.objectStore(STORAGE_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("No se pudo leer IndexedDB"));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+  });
+}
+
+async function idbSet(key, value) {
+  const db = await openStorageDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORAGE_STORE, "readwrite");
+    const req = tx.objectStore(STORAGE_STORE).put(value, key);
+    req.onsuccess = () => resolve(true);
+    req.onerror = () => reject(req.error || new Error("No se pudo guardar IndexedDB"));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+  });
+}
+
 async function loadKey(key, fallback) {
   try {
     const data = localStorage.getItem(key);
 
-    if (!data) {
-      return fallback;
+    if (data?.startsWith(STORAGE_DB_MARKER)) {
+      const dbData = await idbGet(key);
+      return dbData ? JSON.parse(dbData) : fallback;
     }
 
-    return JSON.parse(data);
+    if (data) return JSON.parse(data);
+
+    const dbData = await idbGet(key).catch(() => null);
+    return dbData ? JSON.parse(dbData) : fallback;
   } catch (e) {
     console.error("Error cargando", key, e);
     return fallback;
@@ -282,16 +459,34 @@ async function loadKey(key, fallback) {
 }
 
 async function saveKey(key, value) {
+  const serialized = JSON.stringify(value);
   try {
-    localStorage.setItem(
-      key,
-      JSON.stringify(value)
-    );
-
+    if (serialized.length > LOCAL_STORAGE_SAFE_LIMIT) {
+      await idbSet(key, serialized);
+      try {
+        localStorage.setItem(key, `${STORAGE_DB_MARKER}${key}`);
+      } catch {
+        localStorage.removeItem(key);
+        localStorage.setItem(key, `${STORAGE_DB_MARKER}${key}`);
+      }
+      if (activeCloudConfig) pushCloudRecord(activeCloudConfig, key, value).catch((error) => console.warn("Sync pendiente", key, error));
+      return true;
+    }
+    localStorage.setItem(key, serialized);
+    idbSet(key, serialized).catch(() => {});
+    if (activeCloudConfig) pushCloudRecord(activeCloudConfig, key, value).catch((error) => console.warn("Sync pendiente", key, error));
     return true;
   } catch (e) {
-    console.error("Error guardando", key, e);
-    return false;
+    try {
+      await idbSet(key, serialized);
+      localStorage.removeItem(key);
+      localStorage.setItem(key, `${STORAGE_DB_MARKER}${key}`);
+      if (activeCloudConfig) pushCloudRecord(activeCloudConfig, key, value).catch((error) => console.warn("Sync pendiente", key, error));
+      return true;
+    } catch (dbError) {
+      console.error("Error guardando", key, e, dbError);
+      return false;
+    }
   }
 }
 
@@ -423,6 +618,7 @@ export default function App() {
   const [stdRecetas, setStdRecetas] = useState([]);
   const [stdPreparaciones, setStdPreparaciones] = useState([]);
   const [stdMermas, setStdMermas] = useState([]);
+  const [stdRequisiciones, setStdRequisiciones] = useState([]);
 
   const [currentUser, setCurrentUser] = useState(null);
   const [activeModule, setActiveModule] = useState("menu");
@@ -431,7 +627,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [c, a, e, p, u, i, h, d, hc, he, hp, ht, hcert, sf, si, sr, sp, sm, session] = await Promise.all([
+      const [c, a, e, p, u, i, h, d, hc, he, hp, ht, hcert, sf, si, sr, sp, sm, sreq, session] = await Promise.all([
         loadKey("qc_config", null),
         loadKey("qc_areas", null),
         loadKey("qc_epp", null),
@@ -450,21 +646,29 @@ export default function App() {
         loadKey("std_recetas", null),
         loadKey("std_preparaciones", null),
         loadKey("std_mermas", []),
+        loadKey("std_requisiciones", []),
         loadKey("erp_session_user", null),
       ]);
-      let finalAreas = a;
+      const cloudRecords = isCloudConfigReady(c) && getCloudSession()?.access_token ? await pullCloudRecords(c).catch((error) => {
+        console.warn("No se pudo cargar Supabase, se usa respaldo local", error);
+        return {};
+      }) : {};
+      const loadedConfig = cloudRecords.qc_config || c;
+      setActiveCloudConfig(loadedConfig);
+      let finalAreas = cloudRecords.qc_areas || a;
       if (!finalAreas) {
         finalAreas = DEFAULT_AREAS_RAW.map((ar) => ({ id: genId(), nombre: ar.nombre, items: ar.items.map((t) => ({ id: genId(), texto: t })) }));
         saveKey("qc_areas", finalAreas);
       }
-      let finalEpp = e;
+      let finalEpp = cloudRecords.qc_epp || e;
       if (!finalEpp) {
         finalEpp = DEFAULT_EPP_RAW.map((t) => ({ id: genId(), texto: t }));
         saveKey("qc_epp", finalEpp);
       }
       // migración: personas antiguas con "area" (texto) -> "areas" (arreglo)
-      const finalPersonas = (p || []).map((per) => per.areas ? per : { ...per, areas: per.area ? [per.area] : [] });
-      const migratedColaboradores = (hc?.length ? hc : finalPersonas.map((per) => ({
+      const finalPersonas = (cloudRecords.qc_personas || p || []).map((per) => per.areas ? per : { ...per, areas: per.area ? [per.area] : [] });
+      const cloudColaboradores = cloudRecords.hr_colaboradores;
+      const migratedColaboradores = (cloudColaboradores?.length ? cloudColaboradores : hc?.length ? hc : finalPersonas.map((per) => ({
         ...per,
         documento: per.documento || "",
         cargo: per.cargo || per.rol || "",
@@ -472,29 +676,31 @@ export default function App() {
         estado: per.estado || "Activo",
       })));
       if (!hc?.length && migratedColaboradores.length) saveKey("hr_colaboradores", migratedColaboradores);
-      setConfig(c);
+      setConfig(loadedConfig);
       setAreas(finalAreas);
       setEppItems(finalEpp);
       setPersonas(migratedColaboradores);
-      setUsuarios(u || []);
-      setInspecciones(i || []);
-      setHallazgos(h || []);
-      setDesviaciones(d || []);
+      setUsuarios(cloudRecords.qc_usuarios || u || []);
+      setInspecciones(cloudRecords.qc_inspecciones || i || []);
+      setHallazgos(cloudRecords.qc_hallazgos || h || []);
+      setDesviaciones(cloudRecords.qc_desviaciones || d || []);
       setHrColaboradores(migratedColaboradores || []);
-      setHrEvaluaciones(he || []);
-      setHrPlanes(hp || []);
-      setHrCapacitaciones(ht || []);
-      setHrCertificaciones(hcert || []);
-      const finalStdFamilias = sf === null ? DEFAULT_STD_DATA.familias : sf;
-      const finalStdInsumos = si === null ? DEFAULT_STD_DATA.insumos : si;
-      const finalStdRecetas = sr === null ? DEFAULT_STD_DATA.recetas : sr;
-      const finalStdPreparaciones = sp === null ? DEFAULT_STD_DATA.preparaciones : sp;
-      const finalStdMermas = sm || [];
+      setHrEvaluaciones(cloudRecords.hr_evaluaciones || he || []);
+      setHrPlanes(cloudRecords.hr_planes_mejora || hp || []);
+      setHrCapacitaciones(cloudRecords.hr_capacitaciones || ht || []);
+      setHrCertificaciones(cloudRecords.hr_certificaciones || hcert || []);
+      const finalStdFamilias = cloudRecords.std_familias || (sf === null ? DEFAULT_STD_DATA.familias : sf);
+      const finalStdInsumos = cloudRecords.std_insumos || (si === null ? DEFAULT_STD_DATA.insumos : si);
+      const finalStdRecetas = cloudRecords.std_recetas || (sr === null ? DEFAULT_STD_DATA.recetas : sr);
+      const finalStdPreparaciones = cloudRecords.std_preparaciones || (sp === null ? DEFAULT_STD_DATA.preparaciones : sp);
+      const finalStdMermas = cloudRecords.std_mermas || sm || [];
+      const finalStdRequisiciones = cloudRecords.std_requisiciones || sreq || [];
       setStdFamilias(finalStdFamilias);
       setStdInsumos(finalStdInsumos);
       setStdRecetas(finalStdRecetas);
       setStdPreparaciones(finalStdPreparaciones);
       setStdMermas(finalStdMermas);
+      setStdRequisiciones(finalStdRequisiciones);
       if (sf === null) saveKey("std_familias", finalStdFamilias);
       if (si === null) saveKey("std_insumos", finalStdInsumos);
       if (sr === null) saveKey("std_recetas", finalStdRecetas);
@@ -503,6 +709,10 @@ export default function App() {
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    if (config) setActiveCloudConfig(config);
+  }, [config]);
 
   const persist = {
     config: async (v) => { setConfig(v); await saveKey("qc_config", v); },
@@ -530,6 +740,7 @@ export default function App() {
     stdRecetas: async (v) => { setStdRecetas(v); await saveKey("std_recetas", v); },
     stdPreparaciones: async (v) => { setStdPreparaciones(v); await saveKey("std_preparaciones", v); },
     stdMermas: async (v) => { setStdMermas(v); await saveKey("std_mermas", v); },
+    stdRequisiciones: async (v) => { setStdRequisiciones(v); await saveKey("std_requisiciones", v); },
   };
   const appendInspectionRecord = async (insp, nuevosHallazgos = []) => {
     const storedInspecciones = await loadKey("qc_inspecciones", inspecciones);
@@ -545,6 +756,8 @@ export default function App() {
   const primary = config?.colorPrimario || "#1F2B3A";
   const accent = config?.colorAccent || "#F2622E";
   const isAdmin = currentUser?.rol === "administrador";
+  const canOpenAdmin = canAccess(config, currentUser, "admin", "view");
+  const canManageQuality = canAccess(config, currentUser, "calidad", "edit") || canAccess(config, currentUser, "calidad", "delete");
   const activeColaboradores = useMemo(() => hrColaboradores.filter((p) => p.estado !== "Inactivo" && p.estado !== "Retirado"), [hrColaboradores]);
 
   useEffect(() => {
@@ -569,8 +782,9 @@ export default function App() {
       stdRecetas,
       stdPreparaciones,
       stdMermas,
+      stdRequisiciones,
     });
-  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas]);
+  }, [loading, config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas, stdRequisiciones]);
 
   if (loading) {
     return (
@@ -623,7 +837,9 @@ export default function App() {
         background: config?.appBackground || "#F1F3F4",
         fontFamily: config?.fontFamily || "Inter, sans-serif",
         fontSize: `${config?.fontScale || 125}%`,
+        textAlign: config?.textAlign || "center",
         "--erp-font-factor": (config?.fontScale || 125) / 100,
+        "--erp-text-align": config?.textAlign || "center",
         "--erp-primary": primary,
         "--erp-accent": accent,
         "--erp-surface": config?.cellBackground || "#FFFFFF",
@@ -653,7 +869,7 @@ export default function App() {
         {activeModule === "menu" && (
           <ErpModuleLauncher
             config={config}
-            isAdmin={isAdmin}
+            currentUser={currentUser}
             primary={primary}
             accent={accent}
             onSelect={(moduleId) => {
@@ -663,7 +879,7 @@ export default function App() {
           />
         )}
         {activeModule === "calidad" && (
-          <QualityTabs tab={tab} setTab={setTab} primary={primary} isAdmin={isAdmin} />
+          <QualityTabs tab={tab} setTab={setTab} primary={primary} isAdmin={canManageQuality} />
         )}
         {activeModule === "calidad" && tab === "inspeccion" && (
           <AreaInspectionView
@@ -683,20 +899,20 @@ export default function App() {
             onSave={appendInspectionRecord}
           />
         )}
-        {activeModule === "calidad" && isAdmin && tab === "historial" && (
+        {activeModule === "calidad" && canManageQuality && tab === "historial" && (
           <HistorialView
             inspecciones={inspecciones} areas={areas} primary={primary} config={config}
             onUpdate={(v) => persist.inspecciones(v)}
             onDeleteCascadeHallazgos={(id) => persist.hallazgos(hallazgos.filter((h) => h.inspeccionId !== id))}
           />
         )}
-        {activeModule === "calidad" && isAdmin && tab === "analisis" && (
+        {activeModule === "calidad" && canManageQuality && tab === "analisis" && (
           <AnalisisView inspecciones={inspecciones} hallazgos={hallazgos} desviaciones={desviaciones} primary={primary} accent={accent} />
         )}
-        {activeModule === "calidad" && isAdmin && tab === "hallazgos" && (
+        {activeModule === "calidad" && canManageQuality && tab === "hallazgos" && (
           <HallazgosView hallazgos={hallazgos} onUpdate={(v) => persist.hallazgos(v)} primary={primary} config={config} />
         )}
-        {activeModule === "calidad" && isAdmin && tab === "desviaciones" && (
+        {activeModule === "calidad" && canManageQuality && tab === "desviaciones" && (
           <DesviacionesView
             desviaciones={desviaciones}
             areas={areas}
@@ -707,13 +923,16 @@ export default function App() {
             onUpdate={(v) => persist.desviaciones(v)}
           />
         )}
-        {activeModule === "talento" && isAdmin && (
+        {activeModule === "talento" && canAccess(config, currentUser, "talento", "view") && (
           <TalentoHumanoView
             colaboradores={hrColaboradores}
             evaluaciones={hrEvaluaciones}
             planes={hrPlanes}
             capacitaciones={hrCapacitaciones}
             certificaciones={hrCertificaciones}
+            inspecciones={inspecciones}
+            hallazgos={hallazgos}
+            desviaciones={desviaciones}
             usuarios={usuarios}
             areas={areas}
             currentUser={currentUser}
@@ -728,32 +947,55 @@ export default function App() {
             onConfig={persist.config}
           />
         )}
-        {activeModule === "cocina" && (
+        {activeModule === "cocina" && canAccess(config, currentUser, "cocina", "view") && (
           <EstandarizacionCocinaView
             familias={stdFamilias}
             insumos={stdInsumos}
             recetas={stdRecetas}
             preparaciones={stdPreparaciones}
             mermas={stdMermas}
+            requisiciones={stdRequisiciones}
             onFamilias={persist.stdFamilias}
             onInsumos={persist.stdInsumos}
             onRecetas={persist.stdRecetas}
             onPreparaciones={persist.stdPreparaciones}
             onMermas={persist.stdMermas}
+            onRequisiciones={persist.stdRequisiciones}
             primary={primary}
             accent={accent}
             config={config}
             currentUser={currentUser}
           />
         )}
-        {activeModule === "admin" && isAdmin && (
+        {activeModule === "pedidos" && canAccess(config, currentUser, "pedidos", "view") && (
+          <EstandarizacionCocinaView
+            familias={stdFamilias}
+            insumos={stdInsumos}
+            recetas={stdRecetas}
+            preparaciones={stdPreparaciones}
+            mermas={stdMermas}
+            requisiciones={stdRequisiciones}
+            onFamilias={persist.stdFamilias}
+            onInsumos={persist.stdInsumos}
+            onRecetas={persist.stdRecetas}
+            onPreparaciones={persist.stdPreparaciones}
+            onMermas={persist.stdMermas}
+            onRequisiciones={persist.stdRequisiciones}
+            primary={primary}
+            accent={accent}
+            config={config}
+            currentUser={currentUser}
+            initialTab="requisiciones"
+          />
+        )}
+        {activeModule === "admin" && canOpenAdmin && (
           <AdminView
             config={config} areas={areas} eppItems={eppItems} personas={hrColaboradores} usuarios={usuarios}
             currentUser={currentUser}
             onConfig={persist.config} onAreas={persist.areas} onEpp={persist.epp}
             onPersonas={persist.hrColaboradores} onUsuarios={persist.usuarios}
             primary={primary}
-            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas }}
+            backupData={{ config, areas, eppItems, usuarios, inspecciones, hallazgos, desviaciones, hrColaboradores, hrEvaluaciones, hrPlanes, hrCapacitaciones, hrCertificaciones, stdFamilias, stdInsumos, stdRecetas, stdPreparaciones, stdMermas, stdRequisiciones }}
           />
         )}
       </main>
@@ -763,7 +1005,7 @@ export default function App() {
 }
 
 function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome, onLogout }) {
-  const moduleLabel = activeModule === "calidad" ? "Calidad e inspecciones" : activeModule === "talento" ? "Gestión del Talento Humano" : activeModule === "cocina" ? "Estandarización de cocina" : activeModule === "admin" ? "Administración global" : "Inicio";
+  const moduleLabel = activeModule === "calidad" ? "Calidad e inspecciones" : activeModule === "talento" ? "Gestión del Talento Humano" : activeModule === "cocina" ? "Estandarización de cocina" : activeModule === "pedidos" ? "Requisiciones y pedidos" : activeModule === "admin" ? "Administración global" : "Inicio";
   const inModule = activeModule !== "menu";
   return (
     <header className="erp-header" style={{ background: `linear-gradient(135deg, ${primary}, #152033)` }}>
@@ -791,12 +1033,13 @@ function ErpHeader({ config, primary, currentUser, isAdmin, activeModule, onHome
   );
 }
 
-function ErpModuleLauncher({ config, isAdmin, primary, accent, onSelect }) {
+function ErpModuleLauncher({ config, currentUser, primary, accent, onSelect }) {
   const modules = [
-    { id: "calidad", title: "Calidad", action: "Inspeccionar", icon: ClipboardCheck, enabled: true, color: accent },
-    { id: "talento", title: "Talento", action: "Gestionar", icon: BriefcaseBusiness, enabled: isAdmin, color: primary },
-    { id: "cocina", title: "Fichas", action: "Consultar", icon: ChefHat, enabled: true, color: "#1E7A46" },
-    { id: "admin", title: "Admin", action: "Configurar", icon: Settings, enabled: isAdmin, color: "#5C6673" },
+    { id: "calidad", title: "Calidad", action: "Inspeccionar", icon: ClipboardCheck, enabled: canAccess(config, currentUser, "calidad", "view"), color: accent },
+    { id: "talento", title: "Talento", action: "Gestionar", icon: BriefcaseBusiness, enabled: canAccess(config, currentUser, "talento", "view"), color: primary },
+    { id: "cocina", title: "Fichas", action: "Consultar", icon: ChefHat, enabled: canAccess(config, currentUser, "cocina", "view"), color: "#1E7A46" },
+    { id: "pedidos", title: "Pedidos", action: "Solicitar", icon: PackageCheck, enabled: canAccess(config, currentUser, "pedidos", "view"), color: "#B4750E" },
+    { id: "admin", title: "Admin", action: "Configurar", icon: Settings, enabled: canAccess(config, currentUser, "admin", "view"), color: "#5C6673" },
   ];
   return (
     <div className="module-launcher">
@@ -835,16 +1078,17 @@ function ChecklistItemRow({ item, status, observation, evidence, expanded, evide
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "minmax(280px, 1fr) 284px 150px 52px",
+        gridTemplateColumns: "minmax(190px, 1fr) minmax(210px, 284px) minmax(118px, 150px) 46px",
         gap: 6,
         alignItems: "center",
-        minWidth: 780,
+        width: "100%",
+        minWidth: 0,
         padding: "6px 0",
         borderBottom: "1px solid #EEF1F4",
       }}
     >
-      <div style={{ minHeight: 40, display: "flex", alignItems: "center", padding: "0 8px", textAlign: "left" }}>
-        <p style={{ margin: 0, color: "#445064", fontSize: 14, lineHeight: 1.2, fontWeight: 700 }}>{item.texto}</p>
+      <div style={{ minHeight: 40, display: "flex", alignItems: "center", padding: "0 8px", textAlign: "var(--erp-text-align, left)", minWidth: 0 }}>
+        <p style={{ margin: 0, color: "#445064", fontSize: 14, lineHeight: 1.2, fontWeight: 700, textAlign: "inherit", overflowWrap: "anywhere" }}>{item.texto}</p>
       </div>
       <div style={{ minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <StatusPicker value={status} onChange={onStatus} compact />
@@ -930,7 +1174,7 @@ function ChecklistItemRow({ item, status, observation, evidence, expanded, evide
         </div>
       )}
       {evidenceList.length > 0 && (
-        <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(3, 56px)", gap: 6, justifyContent: "end", padding: "0 8px 4px" }}>
+        <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(3, 56px)", gap: 6, justifyContent: "end", padding: "0 8px 4px", maxWidth: "100%" }}>
           {evidenceList.map((src, index) => <img key={index} src={src} alt="" style={{ width: 56, height: 42, objectFit: "cover", borderRadius: 7, border: "1px solid #D8DCE1" }} />)}
         </div>
       )}
@@ -1115,7 +1359,7 @@ function AreaInspectionView({ areas, personas, currentUser, accent, primary, con
 
         {area && (
           <div className="bg-white rounded-xl p-2 overflow-x-auto" style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: 820 }}>
+            <div style={{ width: "100%", minWidth: 0 }}>
               {area.items.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -1331,7 +1575,7 @@ function EppChecklistView({ eppItems, personas, currentUser, primary, accent, co
           <p className="text-sm text-gray-400 py-6">No hay items EPP configurados. Puedes crearlos en Administracion global.</p>
         ) : (
           <>
-            <div style={{ minWidth: 820 }}>
+            <div style={{ width: "100%", minWidth: 0 }}>
               {eppItems.map((it) => (
                 <ChecklistItemRow
                   key={it.id}
@@ -1775,7 +2019,7 @@ function SetupWizard({ onDone }) {
     if (pw.length < 4) return setError("La contraseña debe tener al menos 4 caracteres.");
     if (pw !== pw2) return setError("Las contraseñas no coinciden.");
     onDone(
-      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", textColor: "#243040", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif", appBackground: "#F1F3F4", cellBackground: "#FFFFFF", fieldBorderWidth: 1, fieldPaddingY: 9 },
+      { nombre: nombre.trim() || "ERP Cocina Institucional", colorPrimario: "#1F2B3A", colorAccent: "#F2622E", textColor: "#243040", logo: null, watermarkLogo: true, fontScale: 125, fontFamily: "Inter, sans-serif", textAlign: "center", appBackground: "#F1F3F4", cellBackground: "#FFFFFF", fieldBorderWidth: 1, fieldPaddingY: 9, cloudSync: { enabled: false, url: "", anonKey: "", workspaceId: "" } },
       { id: genId(), nombre: adminNombre.trim(), password: pw, rol: "administrador" }
     );
   };
@@ -3074,6 +3318,7 @@ function AdminView({ config, areas, eppItems, usuarios, currentUser, onConfig, o
     { id: "areas", label: "Áreas" },
     { id: "epp", label: "EPP" },
     { id: "usuarios", label: "Usuarios" },
+    { id: "roles", label: "Roles" },
     { id: "acerca", label: "Acerca de" },
   ];
 
@@ -3092,7 +3337,8 @@ function AdminView({ config, areas, eppItems, usuarios, currentUser, onConfig, o
       {sub === "general" && <AdminGeneral config={config} onConfig={onConfig} primary={primary} backupData={backupData} />}
       {sub === "areas" && <AdminAreas areas={areas} onAreas={onAreas} primary={primary} />}
       {sub === "epp" && <AdminEpp eppItems={eppItems} onEpp={onEpp} primary={primary} />}
-      {sub === "usuarios" && <AdminUsuarios usuarios={usuarios} onUsuarios={onUsuarios} currentUser={currentUser} primary={primary} />}
+      {sub === "usuarios" && <AdminUsuarios usuarios={usuarios} config={config} onUsuarios={onUsuarios} currentUser={currentUser} primary={primary} />}
+      {sub === "roles" && <AdminRoles config={config} onConfig={onConfig} primary={primary} />}
       {sub === "acerca" && <AdminAcercaDe primary={primary} />}
     </div>
   );
@@ -3106,6 +3352,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [logo, setLogo] = useState(config.logo);
   const [fontScale, setFontScale] = useState(config.fontScale || 112);
   const [fontFamily, setFontFamily] = useState(config.fontFamily || "Inter, sans-serif");
+  const [textAlign, setTextAlign] = useState(config.textAlign || "center");
   const [watermarkLogo, setWatermarkLogo] = useState(config.watermarkLogo !== false);
   const [moduleLogos, setModuleLogos] = useState(config.moduleLogos || {});
   const [inactiveStatsMonths, setInactiveStatsMonths] = useState(config.inactiveStatsMonths || 6);
@@ -3115,6 +3362,13 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
   const [fieldPaddingY, setFieldPaddingY] = useState(config.fieldPaddingY || 9);
   const [logoError, setLogoError] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
+  const [cloudEnabled, setCloudEnabled] = useState(Boolean(config.cloudSync?.enabled));
+  const [cloudUrl, setCloudUrl] = useState(config.cloudSync?.url || "");
+  const [cloudAnonKey, setCloudAnonKey] = useState(config.cloudSync?.anonKey || "");
+  const [cloudWorkspaceId, setCloudWorkspaceId] = useState(config.cloudSync?.workspaceId || "");
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudMsg, setCloudMsg] = useState("");
   const palettes = [
     { id: "institucional", label: "Institucional", primary: "#1F2B3A", accent: "#F2622E", text: "#243040", page: "#F1F3F4", cell: "#FFFFFF" },
     { id: "verde", label: "Calidad", primary: "#12372A", accent: "#1E7A46", text: "#20322A", page: "#EEF4F0", cell: "#FFFFFF" },
@@ -3137,6 +3391,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     logo: nextLogo,
     fontScale,
     fontFamily,
+    textAlign,
     watermarkLogo,
     moduleLogos,
     inactiveStatsMonths,
@@ -3144,6 +3399,13 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     cellBackground,
     fieldBorderWidth,
     fieldPaddingY,
+    cloudSync: {
+      ...(config.cloudSync || {}),
+      enabled: cloudEnabled,
+      url: cloudUrl.trim(),
+      anonKey: cloudAnonKey.trim(),
+      workspaceId: cloudWorkspaceId.trim(),
+    },
   });
 
   const handleLogo = async (e) => {
@@ -3233,7 +3495,23 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
       stdRecetas: blankStandardization ? [] : (backupData.stdRecetas?.length ? backupData.stdRecetas : DEFAULT_STD_DATA.recetas),
       stdPreparaciones: blankStandardization ? [] : (backupData.stdPreparaciones?.length ? backupData.stdPreparaciones : DEFAULT_STD_DATA.preparaciones),
       stdMermas: [],
+      stdRequisiciones: [],
     };
+  };
+  const descargarModoPrueba = () => {
+    const payload = {
+      ...cleanTemplatePayload({ blankStandardization: true }),
+      template: "erp-modo-prueba-sin-datos",
+      demo: true,
+      nota: "Archivo de datos limpio para entregar el ERP en modo prueba sin información operativa real.",
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `modo-prueba-erp-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
   const descargarPlantillaLimpia = () => {
     const payload = cleanTemplatePayload({ blankStandardization: true });
@@ -3244,6 +3522,82 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
     a.download = `plantilla-limpia-erp-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+  const cloudConfigPayload = () => ({
+    ...configPayload(),
+    cloudSync: {
+      enabled: cloudEnabled,
+      url: cloudUrl.trim(),
+      anonKey: cloudAnonKey.trim(),
+      workspaceId: cloudWorkspaceId.trim(),
+    },
+  });
+  const cloudRecordsPayload = () => ({
+    qc_config: cloudConfigPayload(),
+    qc_areas: backupData.areas || [],
+    qc_epp: backupData.eppItems || [],
+    qc_personas: backupData.hrColaboradores || [],
+    qc_usuarios: backupData.usuarios || [],
+    qc_inspecciones: backupData.inspecciones || [],
+    qc_hallazgos: backupData.hallazgos || [],
+    qc_desviaciones: backupData.desviaciones || [],
+    hr_colaboradores: backupData.hrColaboradores || [],
+    hr_evaluaciones: backupData.hrEvaluaciones || [],
+    hr_planes_mejora: backupData.hrPlanes || [],
+    hr_capacitaciones: backupData.hrCapacitaciones || [],
+    hr_certificaciones: backupData.hrCertificaciones || [],
+    std_familias: backupData.stdFamilias || [],
+    std_insumos: backupData.stdInsumos || [],
+    std_recetas: backupData.stdRecetas || [],
+    std_preparaciones: backupData.stdPreparaciones || [],
+    std_mermas: backupData.stdMermas || [],
+    std_requisiciones: backupData.stdRequisiciones || [],
+  });
+  const conectarSupabase = async () => {
+    setCloudMsg("Conectando...");
+    try {
+      const nextConfig = cloudConfigPayload();
+      await signInCloud(nextConfig, cloudEmail.trim(), cloudPassword);
+      await onConfig(nextConfig);
+      setActiveCloudConfig(nextConfig);
+      setCloudPassword("");
+      setCloudMsg("Conexión activa. Ahora puedes subir o traer datos.");
+    } catch (error) {
+      setCloudMsg(`No se pudo conectar: ${error.message}`);
+    }
+  };
+  const subirSnapshotCloud = async () => {
+    setCloudMsg("Subiendo datos actuales...");
+    try {
+      const nextConfig = cloudConfigPayload();
+      await onConfig(nextConfig);
+      await pushCloudSnapshot(nextConfig, cloudRecordsPayload());
+      setCloudMsg("Datos actuales subidos a Supabase.");
+    } catch (error) {
+      setCloudMsg(`No se pudo subir: ${error.message}`);
+    }
+  };
+  const traerSnapshotCloud = async () => {
+    const ok = confirm("Esto traerá datos desde Supabase y recargará este equipo. Descarga backup si tienes dudas. ¿Continuar?");
+    if (!ok) return;
+    setCloudMsg("Descargando datos desde Supabase...");
+    try {
+      const nextConfig = cloudConfigPayload();
+      const records = await pullCloudRecords(nextConfig);
+      await Promise.all(Object.entries(records).map(([key, value]) => saveKey(key, value)));
+      setCloudMsg("Datos descargados. Recargando...");
+      window.location.reload();
+    } catch (error) {
+      setCloudMsg(`No se pudo descargar: ${error.message}`);
+    }
+  };
+  const desconectarCloud = async () => {
+    clearCloudSession();
+    const nextConfig = { ...cloudConfigPayload(), cloudSync: { ...cloudConfigPayload().cloudSync, enabled: false } };
+    setCloudEnabled(false);
+    await onConfig(nextConfig);
+    setActiveCloudConfig(nextConfig);
+    setCloudMsg("Sincronización desconectada en este equipo.");
   };
   const reiniciarEsteEquipo = async () => {
     const ok = confirm("Esto reinicia SOLO este navegador/tablet: conserva catalogos base, borra registros diligenciados y pedira crear usuario de nuevo. Otras tablets no se afectan. ¿Continuar?");
@@ -3271,6 +3625,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
       saveKey("std_recetas", payload.stdRecetas.map((receta) => ({ ...receta, foto: "" }))),
       saveKey("std_preparaciones", payload.stdPreparaciones),
       saveKey("std_mermas", []),
+      saveKey("std_requisiciones", []),
       saveKey("erp_session_user", null),
     ]);
     window.location.reload();
@@ -3352,6 +3707,14 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
             <option value="system-ui, sans-serif">Sistema</option>
           </select>
         </label>
+        <label className="admin-select-control">
+          <span>Alineación de textos</span>
+          <select value={textAlign} onChange={(e) => setTextAlign(e.target.value)}>
+            <option value="center">Centrar</option>
+            <option value="left">Alinear a la izquierda</option>
+            <option value="justify">Justificar completo</option>
+          </select>
+        </label>
         <label className="admin-range-control compact">
           <span>Borde <b>{fieldBorderWidth}px</b></span>
           <input type="range" min="1" max="3" value={fieldBorderWidth} onChange={(e) => setFieldBorderWidth(Number(e.target.value))} />
@@ -3376,9 +3739,36 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
           <div className="admin-action-row">
             <button onClick={descargarBackup} style={{ borderColor: primary, color: primary }}>Backup</button>
             <button onClick={descargarPlantillaLimpia} style={{ borderColor: primary, color: primary }}>Plantilla limpia</button>
+            <button onClick={descargarModoPrueba} style={{ borderColor: primary, color: primary }}>Modo prueba</button>
             <button onClick={reiniciarEsteEquipo} className="danger">Reiniciar equipo</button>
           </div>
-          <small>La plantilla limpia no borra nada. El reinicio solo aplica al navegador actual y descarga un backup antes.</small>
+          <small>Modo prueba descarga datos limpios para demostraciones. No borra nada. El reinicio solo aplica al navegador actual y descarga un backup antes.</small>
+        </div>
+
+        <div className="admin-card admin-card-wide cloud-sync-card">
+          <div className="admin-card-head">
+            <h3 style={{ fontFamily: "inherit" }}>Sincronización multi-equipo</h3>
+            <span>Supabase</span>
+          </div>
+          <p>Conecta una base central para que tablet, PC y celular trabajen sobre la misma información. No uses la llave service_role en la PWA.</p>
+          <div className="cloud-sync-grid">
+            <label className="admin-check-card">
+              <input type="checkbox" checked={cloudEnabled} onChange={(e) => setCloudEnabled(e.target.checked)} />
+              <span>Activar sincronización</span>
+            </label>
+            <input value={cloudUrl} onChange={(e) => setCloudUrl(e.target.value)} placeholder="Supabase URL" />
+            <input value={cloudWorkspaceId} onChange={(e) => setCloudWorkspaceId(e.target.value)} placeholder="Workspace ID" />
+            <input value={cloudAnonKey} onChange={(e) => setCloudAnonKey(e.target.value)} placeholder="Anon public key" />
+            <input value={cloudEmail} onChange={(e) => setCloudEmail(e.target.value)} placeholder="Correo Supabase Auth" />
+            <input type="password" value={cloudPassword} onChange={(e) => setCloudPassword(e.target.value)} placeholder="Contraseña Supabase Auth" />
+          </div>
+          <div className="admin-action-row">
+            <button onClick={conectarSupabase} style={{ borderColor: primary, color: primary }}>Conectar</button>
+            <button onClick={subirSnapshotCloud} style={{ borderColor: primary, color: primary }}>Subir datos</button>
+            <button onClick={traerSnapshotCloud} style={{ borderColor: primary, color: primary }}>Traer datos</button>
+            <button onClick={desconectarCloud} className="danger">Desconectar</button>
+          </div>
+          <small>{cloudMsg || "Primero crea el proyecto en Supabase, ejecuta el SQL seguro y pega aquí la URL, anon key y workspace."}</small>
         </div>
 
         <div className="admin-card">
@@ -3417,6 +3807,7 @@ function AdminGeneral({ config, onConfig, primary, backupData }) {
             ["calidad", "Calidad"],
             ["talento", "Talento"],
             ["cocina", "Fichas"],
+            ["pedidos", "Pedidos"],
             ["admin", "Admin"],
           ].map(([id, label]) => (
             <div key={id} className="admin-module-logo-card">
@@ -3670,8 +4061,119 @@ function PersonaEditForm({ persona, areas, onSave, onCancel, primary }) {
   );
 }
 
-function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
-  const [form, setForm] = useState({ nombre: "", password: "", rol: "usuario" });
+function AdminRoles({ config, onConfig, primary }) {
+  const [roles, setRoles] = useState(normalizeRoleProfiles(config));
+  const [selectedRole, setSelectedRole] = useState("supervisor");
+  const roleList = Object.values(roles);
+  const selected = roles[selectedRole] || roleList[0];
+
+  const updateRole = (roleId, patch) => {
+    setRoles((prev) => ({ ...prev, [roleId]: { ...prev[roleId], ...patch } }));
+  };
+  const togglePermission = (roleId, moduleId, actionId) => {
+    setRoles((prev) => ({
+      ...prev,
+      [roleId]: {
+        ...prev[roleId],
+        permissions: {
+          ...prev[roleId].permissions,
+          [moduleId]: {
+            ...prev[roleId].permissions[moduleId],
+            [actionId]: !prev[roleId].permissions[moduleId]?.[actionId],
+          },
+        },
+      },
+    }));
+  };
+  const addRole = () => {
+    const id = `rol_${Date.now().toString(36)}`;
+    const next = {
+      id,
+      label: "Nuevo rol",
+      description: "Define el alcance de este rol.",
+      permissions: rolePermissions([], false),
+    };
+    setRoles((prev) => ({ ...prev, [id]: next }));
+    setSelectedRole(id);
+  };
+  const removeRole = (roleId) => {
+    if (roles[roleId]?.system) return;
+    if (!confirm("¿Eliminar este rol? Los usuarios asignados deberán actualizarse.")) return;
+    const next = { ...roles };
+    delete next[roleId];
+    setRoles(next);
+    setSelectedRole("usuario");
+  };
+  const save = () => onConfig({ ...config, roleProfiles: roles });
+
+  return (
+    <div className="admin-panel-shell">
+      <div className="admin-panel">
+        <div className="admin-panel-head">
+          <div>
+            <h3 style={{ fontFamily: "inherit" }}>Roles y permisos</h3>
+            <p>Base para multiempresa, sedes, membresías y control de acceso por equipo.</p>
+          </div>
+          <button type="button" onClick={addRole} className="admin-pill-button" style={{ color: primary, borderColor: `${primary}55` }}>
+            <Plus size={14} /> Rol
+          </button>
+        </div>
+        <div className="roles-layout">
+          <div className="roles-list">
+            {roleList.map((role) => (
+              <button key={role.id} type="button" onClick={() => setSelectedRole(role.id)} className={selected?.id === role.id ? "active" : ""}>
+                <strong>{role.label}</strong>
+                <span>{role.description}</span>
+              </button>
+            ))}
+          </div>
+          {selected && (
+            <div className="roles-editor">
+              <div className="roles-editor-head">
+                <input value={selected.label} disabled={selected.system} onChange={(e) => updateRole(selected.id, { label: e.target.value })} />
+                {!selected.system && <button type="button" onClick={() => removeRole(selected.id)} className="admin-icon-danger"><Trash2 size={15} /></button>}
+              </div>
+              <textarea value={selected.description || ""} onChange={(e) => updateRole(selected.id, { description: e.target.value })} rows={2} placeholder="Descripción del rol" />
+              <div className="permissions-table">
+                <div className="permissions-head">
+                  <span>Módulo</span>
+                  {ERP_ACTIONS.map((action) => <span key={action.id}>{action.label}</span>)}
+                </div>
+                {ERP_MODULES.map((module) => (
+                  <div key={module.id} className="permissions-row">
+                    <div>
+                      <strong>{module.label}</strong>
+                      <small>{module.description}</small>
+                    </div>
+                    {ERP_ACTIONS.map((action) => (
+                      <label key={action.id} title={`${action.label} ${module.label}`}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selected.permissions?.[module.id]?.[action.id])}
+                          disabled={selected.id === "administrador"}
+                          onChange={() => togglePermission(selected.id, module.id, action.id)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <p className="admin-help-text">En la fase local esto controla visibilidad. En la fase Supabase se convertirá en seguridad real por empresa, sede y plan contratado.</p>
+            </div>
+          )}
+        </div>
+      </div>
+      <button onClick={save} className="admin-save-button" style={{ background: primary }}>
+        <Save size={16} /> Guardar roles
+      </button>
+    </div>
+  );
+}
+
+function AdminUsuarios({ usuarios, config, onUsuarios, currentUser, primary }) {
+  const roleProfiles = normalizeRoleProfiles(config);
+  const roleOptions = Object.values(roleProfiles);
+  const [form, setForm] = useState({ nombre: "", password: "", roleId: "usuario" });
   const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState("");
 
@@ -3681,8 +4183,8 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
     if (usuarios.length >= MAX_USUARIOS) return setMsg(`Ya alcanzaste el máximo de ${MAX_USUARIOS} usuarios.`);
     if (!form.nombre.trim()) return setMsg("Escribe el nombre del usuario.");
     if (form.password.length < 4) return setMsg("La contraseña debe tener al menos 4 caracteres.");
-    onUsuarios([...usuarios, { id: genId(), nombre: form.nombre.trim(), password: form.password, rol: form.rol }]);
-    setForm({ nombre: "", password: "", rol: "usuario" });
+    onUsuarios([...usuarios, { id: genId(), nombre: form.nombre.trim(), password: form.password, rol: form.roleId === "administrador" ? "administrador" : "usuario", roleId: form.roleId }]);
+    setForm({ nombre: "", password: "", roleId: "usuario" });
     setMsg("");
   };
 
@@ -3695,7 +4197,7 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
   };
 
   const guardarEdicion = (u) => {
-    if (u.rol === "usuario") {
+    if (userRoleId(u) !== "administrador") {
       const quedanAdmins = usuarios.filter((x) => x.rol === "administrador" && x.id !== u.id).length;
       if (quedanAdmins === 0) { setMsg("Debe existir al menos un administrador."); return; }
     }
@@ -3717,9 +4219,8 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
         <div className="admin-user-create">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre" />
           <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Contraseña" />
-          <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
-          <option value="usuario">Usuario (solo hace inspecciones)</option>
-          <option value="administrador">Administrador (acceso total)</option>
+          <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })}>
+          {roleOptions.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}
         </select>
         <button onClick={agregar} disabled={usuarios.length >= MAX_USUARIOS}
           style={{ background: primary }}>
@@ -3733,15 +4234,15 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
         {usuarios.map((u) => (
         <div key={u.id} className="admin-user-card">
           {editId === u.id ? (
-            <UsuarioEditForm usuario={u} onSave={guardarEdicion} onCancel={() => setEditId(null)} primary={primary} />
+            <UsuarioEditForm usuario={u} roleProfiles={roleProfiles} onSave={guardarEdicion} onCancel={() => setEditId(null)} primary={primary} />
           ) : (
             <div className="admin-user-view">
               <div>
                 <p>
                   {u.nombre} {u.id === currentUser.id && <span className="text-[10px] text-gray-400">(tú)</span>}
                 </p>
-                <Badge color={u.rol === "administrador" ? "#1F2B3A" : "#5C6673"} bg={u.rol === "administrador" ? "#E9ECEF" : "#F1F3F4"}>
-                  {u.rol === "administrador" ? "Administrador" : "Usuario"}
+                <Badge color={userRoleId(u) === "administrador" ? "#1F2B3A" : "#5C6673"} bg={userRoleId(u) === "administrador" ? "#E9ECEF" : "#F1F3F4"}>
+                  {roleProfiles[userRoleId(u)]?.label || userRoleId(u)}
                 </Badge>
               </div>
               <div className="admin-row-actions">
@@ -3754,23 +4255,24 @@ function AdminUsuarios({ usuarios, onUsuarios, currentUser, primary }) {
       ))}
       </div>
 
-      <p className="admin-help-text">Los usuarios con rol "Usuario" solo pueden ingresar a la pestaña Inspección y no ven Historial, Análisis, Hallazgos ni Admin.</p>
+      <p className="admin-help-text">Los permisos visuales se asignan por rol. Al conectar Supabase, estos perfiles se usarán para proteger datos por empresa, sede y membresía.</p>
     </div>
   );
 }
 
-function UsuarioEditForm({ usuario, onSave, onCancel, primary }) {
-  const [u, setU] = useState({ ...usuario, password: usuario.password });
+function UsuarioEditForm({ usuario, roleProfiles, onSave, onCancel, primary }) {
+  const [u, setU] = useState({ ...usuario, password: usuario.password, roleId: userRoleId(usuario) });
+  const roleOptions = Object.values(roleProfiles);
+  const save = () => onSave({ ...u, rol: u.roleId === "administrador" ? "administrador" : "usuario" });
   return (
     <div className="admin-user-edit">
       <input value={u.nombre} onChange={(e) => setU({ ...u, nombre: e.target.value })} placeholder="Nombre" />
       <input type="password" value={u.password} onChange={(e) => setU({ ...u, password: e.target.value })} placeholder="Contraseña" />
-      <select value={u.rol} onChange={(e) => setU({ ...u, rol: e.target.value })}>
-        <option value="usuario">Usuario (solo hace inspecciones)</option>
-        <option value="administrador">Administrador (acceso total)</option>
+      <select value={u.roleId} onChange={(e) => setU({ ...u, roleId: e.target.value })}>
+        {roleOptions.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}
       </select>
       <div className="admin-row-actions">
-        <button onClick={() => onSave(u)} style={{ background: primary, color: "#fff", borderColor: primary }}>Guardar</button>
+        <button onClick={save} style={{ background: primary, color: "#fff", borderColor: primary }}>Guardar</button>
         <button onClick={onCancel}>Cancelar</button>
       </div>
     </div>

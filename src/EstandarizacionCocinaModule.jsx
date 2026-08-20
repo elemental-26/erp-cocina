@@ -1,14 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   BookOpen, Camera, Download, FileText, ImagePlus, ListChecks,
-  Pencil, Plus, Save, Search, Send, Trash2, X
+  PackageCheck, Pencil, Plus, Save, Search, Send, Trash2, X
 } from "lucide-react";
 
 const tabs = [
   { id: "fichas", label: "Fichas", icon: FileText },
+  { id: "requisiciones", label: "Pedidos", icon: PackageCheck },
   { id: "insumos", label: "Insumos", icon: ListChecks },
   { id: "preparaciones", label: "Preparaciones", icon: BookOpen },
 ];
+
+const DEFAULT_COMEDORES = [
+  { id: "rol-diario", nombre: "ROL diario", centroCosto: "CC-RD" },
+  { id: "comedor-alterno", nombre: "Comedor alterno", centroCosto: "CC-CA" },
+];
+
+const REQUISITION_SERVICES = ["Desayuno", "Almuerzo", "Cena"];
+const PROTEIN_FAMILIES = ["carne", "pollo", "pescado", "marisco", "cerdo", "res", "huevo", "proteina"];
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -16,6 +25,35 @@ function genId() {
 
 function slug(value) {
   return String(value || "documento").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function codePrefix(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toUpperCase();
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function familyPrefix(familiaNombre, familias) {
+  const familia = familias.find((item) => item.nombre === familiaNombre);
+  return codePrefix(familia?.prefijo || familia?.nombre || familiaNombre || "GEN") || "GEN";
+}
+
+function nextInsumoCode(familiaNombre, familias, insumos) {
+  const prefix = familyPrefix(familiaNombre, familias);
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}-?(\\d+)$`, "i");
+  const max = insumos.reduce((highest, item) => {
+    if (item.familia !== familiaNombre) return highest;
+    const match = String(item.id || "").trim().match(pattern);
+    return match ? Math.max(highest, Number(match[1] || 0)) : highest;
+  }, 0);
+  return `${prefix}-${String(max + 1).padStart(3, "0")}`;
 }
 
 function money(value) {
@@ -26,6 +64,57 @@ function money(value) {
 function pct(value) {
   const n = Number(value || 0);
   return `${Math.round(n * 100)}%`;
+}
+
+function normalizeReqComedores(comedores) {
+  const source = Array.isArray(comedores) && comedores.length ? comedores : DEFAULT_COMEDORES;
+  return source.map((comedor, index) => ({
+    id: comedor.id || slug(comedor.nombre) || `comedor-${index + 1}`,
+    nombre: comedor.nombre || `Comedor ${index + 1}`,
+    centroCosto: comedor.centroCosto || `CC-${String(index + 1).padStart(2, "0")}`,
+    activo: comedor.activo !== false,
+  }));
+}
+
+function requisitionLines(comedores) {
+  return normalizeReqComedores(comedores)
+    .filter((comedor) => comedor.activo !== false)
+    .flatMap((comedor) => REQUISITION_SERVICES.map((servicio) => ({
+      key: `${slug(servicio)}__${comedor.id}`,
+      servicio,
+      comedorId: comedor.id,
+      comedor: comedor.nombre,
+      centroCosto: comedor.centroCosto,
+      label: `${servicio} ${comedor.nombre}`,
+    })));
+}
+
+function isProteinInsumo(insumo) {
+  const text = `${insumo?.familia || ""} ${insumo?.nombre || ""}`.toLowerCase();
+  return PROTEIN_FAMILIES.some((word) => text.includes(word));
+}
+
+function reqUnitCost(insumo) {
+  return Number(insumo?.costoReal || insumo?.costoUnitario || 0);
+}
+
+function rowTotalQty(row) {
+  return Object.values(row?.cantidades || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function rowTotalCost(row, insumo) {
+  return rowTotalQty(row) * reqUnitCost(insumo);
+}
+
+function nextRequisitionCode(requisiciones) {
+  const year = new Date().getFullYear();
+  const prefix = `REQ-${year}-`;
+  const max = (requisiciones || []).reduce((highest, item) => {
+    const code = String(item.consecutivo || "");
+    if (!code.startsWith(prefix)) return highest;
+    return Math.max(highest, Number(code.slice(prefix.length)) || 0);
+  }, 0);
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
 function resizeImageToDataUrl(file, maxDim = 720) {
@@ -166,6 +255,83 @@ function fichaHtml({ receta, insumos, config, primary, paxObjetivo }) {
 </html>`;
 }
 
+function requisicionHtml({ requisicion, insumos, config, primary }) {
+  const font = printFontFamily(config);
+  const origin = config?.nombre || "ERP";
+  const logo = config?.logo ? `<img src="${config.logo}" style="height:48px;max-width:130px;object-fit:contain" />` : "";
+  const lines = requisitionLines(requisicion.comedores);
+  const byId = new Map(insumos.map((item) => [item.id, item]));
+  const rows = requisicion.rows || [];
+  const sections = [
+    { id: "proteinas", title: "Proteínas", rows: rows.filter((row) => row.seccion === "proteinas") },
+    { id: "secos-fruver", title: "Secos y fruver", rows: rows.filter((row) => row.seccion !== "proteinas") },
+  ];
+  const lineTotals = lines.map((line) => {
+    const total = rows.reduce((sum, row) => {
+      const insumo = byId.get(row.insumoId);
+      return sum + Number(row.cantidades?.[line.key] || 0) * reqUnitCost(insumo);
+    }, 0);
+    return { ...line, total };
+  });
+  const totalGeneral = lineTotals.reduce((sum, line) => sum + line.total, 0);
+  const renderRows = (items) => items.map((row) => {
+    const insumo = byId.get(row.insumoId) || {};
+    const qty = rowTotalQty(row);
+    return `<tr>
+      <td><b>${insumo.id || ""}</b><br>${insumo.nombre || row.nombre || ""}<small>${insumo.familia || ""}</small></td>
+      <td>${insumo.unidad || row.unidad || ""}</td>
+      ${lines.map((line) => `<td>${Number(row.cantidades?.[line.key] || 0) || ""}</td>`).join("")}
+      <td><b>${qty || ""}</b></td>
+      <td>${money(rowTotalCost(row, insumo))}</td>
+    </tr>`;
+  }).join("");
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>${requisicion.consecutivo || "Requisición consolidada"}</title>
+  <style>
+    body{font-family:${font};color:#1f2b3a;margin:18px;background:#fff}
+    .origin{position:fixed;right:16px;top:10px;font-size:10px;color:#68717d}
+    .top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:3px solid ${primary};padding-bottom:10px}
+    h1{margin:0;font-size:22px;text-transform:uppercase}.muted{color:#68717d;font-size:11px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+    .chip{border:1px solid #dde1e6;border-radius:8px;padding:8px;font-size:11px}.chip b{display:block;font-size:13px;color:#111827}
+    h2{font-size:15px;margin:14px 0 6px;text-transform:uppercase}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #e2e8f0;padding:5px;text-align:center;font-size:10px;vertical-align:middle}
+    th{background:#f4f6f8;text-transform:uppercase;font-size:9px}td:first-child,th:first-child{text-align:left;width:180px}td small{display:block;color:#68717d;margin-top:2px}
+    .totals{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sign{height:42px;border-bottom:1px solid #1f2b3a;margin-top:18px}
+    ${printWatermarkCss()}
+  </style>
+</head>
+<body>
+  ${printWatermarkHtml(config)}
+  <div class="print-content">
+  <div class="origin">Creado por ${origin}</div>
+  <div class="top">
+    <div>${logo}</div>
+    <div style="text-align:right"><h1>Requisición consolidada</h1><p class="muted">${requisicion.consecutivo || ""} · ${requisicion.fecha || ""} · ${requisicion.estado || "Borrador"}</p></div>
+  </div>
+  <div class="summary">
+    <div class="chip">Líneas de servicio<b>${lines.length}</b></div>
+    <div class="chip">Ítems únicos<b>${rows.length}</b></div>
+    <div class="chip">Centros de costo<b>${normalizeReqComedores(requisicion.comedores).filter((c) => c.activo !== false).length}</b></div>
+    <div class="chip">Costo estimado<b>${money(totalGeneral)}</b></div>
+  </div>
+  ${sections.map((section) => `<h2>${section.title}</h2>
+    <table>
+      <thead><tr><th>Insumo</th><th>Unidad</th>${lines.map((line) => `<th>${line.servicio}<br>${line.comedor}<br>${line.centroCosto}</th>`).join("")}<th>Total</th><th>Costo</th></tr></thead>
+      <tbody>${section.rows.length ? renderRows(section.rows) : `<tr><td colspan="${lines.length + 4}">Sin ítems registrados</td></tr>`}</tbody>
+    </table>`).join("")}
+  <div class="totals">
+    ${lineTotals.map((line) => `<div class="chip">${line.label}<b>${money(line.total)}</b><small>${line.centroCosto}</small></div>`).join("")}
+  </div>
+  <div class="chip" style="margin-top:12px"><b>Observaciones</b>${requisicion.observaciones || ""}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:20px"><div><div class="sign"></div><p class="muted">Solicita producción</p></div><div><div class="sign"></div><p class="muted">Recibe bodega</p></div></div>
+  </div>
+</body>
+</html>`;
+}
+
 function calcularCostoReceta(receta, insumos) {
   const byId = new Map(insumos.map((item) => [item.id, item]));
   const byName = new Map(insumos.map((item) => [String(item.nombre || "").toLowerCase(), item]));
@@ -181,23 +347,248 @@ function calcularCostoReceta(receta, insumos) {
   return { total, porcion: pax ? total / pax : 0, porIngrediente };
 }
 
+function RequisicionesView({ insumos, requisiciones, onRequisiciones, primary, config, currentUser }) {
+  const activeInsumos = useMemo(() => insumos.filter((item) => item.activo !== false), [insumos]);
+  const createDraft = () => ({
+    id: genId(),
+    consecutivo: nextRequisitionCode(requisiciones),
+    fecha: new Date().toISOString().slice(0, 10),
+    estado: "Borrador",
+    solicitante: currentUser?.nombre || "",
+    comedores: normalizeReqComedores(requisiciones[0]?.comedores || config?.comedoresRequisicion || DEFAULT_COMEDORES),
+    rows: [],
+    observaciones: "",
+    createdAt: new Date().toISOString(),
+  });
+  const [draft, setDraft] = useState(createDraft);
+  const [query, setQuery] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("todos");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const lines = useMemo(() => requisitionLines(draft.comedores), [draft.comedores]);
+  const byId = useMemo(() => new Map(insumos.map((item) => [item.id, item])), [insumos]);
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const selected = new Set((draft.rows || []).map((row) => row.insumoId));
+    return activeInsumos
+      .filter((item) => !selected.has(item.id))
+      .filter((item) => `${item.id} ${item.nombre} ${item.familia}`.toLowerCase().includes(q))
+      .filter((item) => sectionFilter === "todos" || (sectionFilter === "proteinas" ? isProteinInsumo(item) : !isProteinInsumo(item)))
+      .slice(0, 8);
+  }, [activeInsumos, draft.rows, query, sectionFilter]);
+  const rowsBySection = useMemo(() => ({
+    proteinas: (draft.rows || []).filter((row) => row.seccion === "proteinas"),
+    secos: (draft.rows || []).filter((row) => row.seccion !== "proteinas"),
+  }), [draft.rows]);
+  const totals = useMemo(() => {
+    const lineTotals = lines.map((line) => {
+      const total = (draft.rows || []).reduce((sum, row) => {
+        const insumo = byId.get(row.insumoId);
+        return sum + Number(row.cantidades?.[line.key] || 0) * reqUnitCost(insumo);
+      }, 0);
+      return { ...line, total };
+    });
+    return { lineTotals, general: lineTotals.reduce((sum, line) => sum + line.total, 0) };
+  }, [byId, draft.rows, lines]);
+
+  const updateDraft = (patch) => setDraft((current) => ({ ...current, ...patch }));
+  const updateRow = (rowId, patch) => updateDraft({ rows: draft.rows.map((row) => row.id === rowId ? { ...row, ...patch } : row) });
+  const updateQty = (rowId, lineKey, value) => updateDraft({
+    rows: draft.rows.map((row) => row.id === rowId ? { ...row, cantidades: { ...(row.cantidades || {}), [lineKey]: value } } : row),
+  });
+  const addInsumo = (insumo) => {
+    updateDraft({
+      rows: [
+        ...(draft.rows || []),
+        { id: genId(), insumoId: insumo.id, nombre: insumo.nombre, unidad: insumo.unidad, seccion: isProteinInsumo(insumo) ? "proteinas" : "secos-fruver", cantidades: {}, observaciones: "" },
+      ],
+    });
+    setQuery("");
+  };
+  const addComedor = () => {
+    const nextIndex = draft.comedores.length + 1;
+    updateDraft({ comedores: [...draft.comedores, { id: `comedor-${genId()}`, nombre: `Comedor ${nextIndex}`, centroCosto: `CC-${String(nextIndex).padStart(2, "0")}`, activo: true }] });
+  };
+  const updateComedor = (id, patch) => updateDraft({ comedores: draft.comedores.map((comedor) => comedor.id === id ? { ...comedor, ...patch } : comedor) });
+  const removeComedor = (id) => {
+    if (draft.comedores.filter((item) => item.activo !== false).length <= 1) return;
+    updateDraft({ comedores: draft.comedores.map((comedor) => comedor.id === id ? { ...comedor, activo: false } : comedor) });
+  };
+  const save = (estado = draft.estado || "Borrador") => {
+    const next = { ...draft, estado, updatedAt: new Date().toISOString() };
+    const exists = requisiciones.some((item) => item.id === next.id);
+    onRequisiciones(exists ? requisiciones.map((item) => item.id === next.id ? next : item) : [next, ...requisiciones]);
+    setDraft(next);
+  };
+  const newDraft = () => setDraft(createDraft());
+  const loadReq = (req) => {
+    setDraft({ ...req, comedores: normalizeReqComedores(req.comedores), rows: req.rows || [] });
+    setHistoryOpen(false);
+  };
+  const deleteReq = (id) => {
+    if (!confirm("¿Eliminar esta requisición?")) return;
+    onRequisiciones(requisiciones.filter((item) => item.id !== id));
+    if (draft.id === id) newDraft();
+  };
+  const html = () => requisicionHtml({ requisicion: draft, insumos, config, primary });
+  const descargar = () => downloadHtml(`${slug(draft.consecutivo || "requisicion-consolidada")}.html`, html());
+  const whatsapp = async () => {
+    await shareHtml(`${slug(draft.consecutivo || "requisicion-consolidada")}.html`, html(), "Requisición consolidada", `${draft.consecutivo} · ${draft.fecha} · ${money(totals.general)}`);
+  };
+
+  const renderSection = (title, rows, empty) => (
+    <div className="req-section">
+      <div className="req-section-title">
+        <h3>{title}</h3>
+        <span>{rows.length} ítem(s)</span>
+      </div>
+      <div className="req-matrix">
+        <div className="req-matrix-head" style={{ gridTemplateColumns: `minmax(190px, 1.15fr) 72px repeat(${lines.length}, minmax(86px, 1fr)) 86px 104px 42px` }}>
+          <span>Insumo</span>
+          <span>Unidad</span>
+          {lines.map((line) => <span key={line.key}>{line.servicio}<small>{line.comedor}</small></span>)}
+          <span>Total</span>
+          <span>Costo</span>
+          <span></span>
+        </div>
+        {rows.length === 0 && <div className="req-empty-row">{empty}</div>}
+        {rows.map((row) => {
+          const insumo = byId.get(row.insumoId) || {};
+          return (
+            <div className="req-matrix-row" key={row.id} style={{ gridTemplateColumns: `minmax(190px, 1.15fr) 72px repeat(${lines.length}, minmax(86px, 1fr)) 86px 104px 42px` }}>
+              <div className="req-product-cell">
+                <b>{insumo.nombre || row.nombre}</b>
+                <small>{insumo.id} · {insumo.familia}</small>
+              </div>
+              <span className="req-unit">{insumo.unidad || row.unidad}</span>
+              {lines.map((line) => (
+                <input key={line.key} type="number" min="0" step="0.01" value={row.cantidades?.[line.key] || ""} onChange={(e) => updateQty(row.id, line.key, e.target.value)} title={line.label} />
+              ))}
+              <strong>{rowTotalQty(row) || ""}</strong>
+              <strong>{money(rowTotalCost(row, insumo))}</strong>
+              <button className="std-action-button danger icon-only" type="button" onClick={() => updateDraft({ rows: draft.rows.filter((item) => item.id !== row.id) })} title="Quitar insumo"><Trash2 size={14} /></button>
+              <textarea className="req-row-notes" value={row.observaciones || ""} onChange={(e) => updateRow(row.id, { observaciones: e.target.value })} placeholder="Observación del ítem..." />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <Section title="Requisición consolidada">
+      <div className="req-shell">
+        <div className="req-topbar">
+          <div>
+            <b>{draft.consecutivo}</b>
+            <span>{draft.estado} · {draft.rows.length} ítems · {money(totals.general)}</span>
+          </div>
+          <input type="date" value={draft.fecha || ""} onChange={(e) => updateDraft({ fecha: e.target.value })} />
+          <input value={draft.solicitante || ""} onChange={(e) => updateDraft({ solicitante: e.target.value })} placeholder="Solicitante" />
+          <button className="std-action-button" type="button" onClick={() => setHistoryOpen(!historyOpen)}>Historial ({requisiciones.length})</button>
+          <button className="std-action-button primary" type="button" style={{ background: primary }} onClick={newDraft}><Plus size={14} /> Nueva</button>
+        </div>
+
+        {historyOpen && (
+          <div className="req-history-panel">
+            {requisiciones.length === 0 && <p>No hay requisiciones guardadas.</p>}
+            {requisiciones.map((req) => (
+              <button type="button" key={req.id} className="req-history-row" onClick={() => loadReq(req)}>
+                <b>{req.consecutivo}</b>
+                <span>{req.fecha} · {req.estado} · {(req.rows || []).length} ítems</span>
+                <small>{money((req.rows || []).reduce((sum, row) => sum + rowTotalCost(row, byId.get(row.insumoId)), 0))}</small>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="req-comedores">
+          <div className="req-subtitle">
+            <b>Comedores y centros de costo</b>
+            <button className="std-action-button" type="button" onClick={addComedor}><Plus size={14} /> Comedor</button>
+          </div>
+          {draft.comedores.filter((item) => item.activo !== false).map((comedor) => (
+            <div className="req-comedor-row" key={comedor.id}>
+              <input value={comedor.nombre} onChange={(e) => updateComedor(comedor.id, { nombre: e.target.value })} />
+              <input value={comedor.centroCosto} onChange={(e) => updateComedor(comedor.id, { centroCosto: e.target.value })} />
+              <button className="std-action-button danger icon-only" type="button" onClick={() => removeComedor(comedor.id)} title="Ocultar comedor"><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+
+        <div className="req-product-tools">
+          <label className="std-search">
+            <Search size={16} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar insumo por código, nombre o familia..." />
+          </label>
+          <select className="std-select" value={sectionFilter} onChange={(e) => setSectionFilter(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="proteinas">Proteínas</option>
+            <option value="secos-fruver">Secos y fruver</option>
+          </select>
+          {suggestions.length > 0 && (
+            <div className="req-suggestions">
+              {suggestions.map((item) => (
+                <button key={item.id} type="button" onClick={() => addInsumo(item)}>
+                  <b>{item.nombre}</b>
+                  <span>{item.id} · {item.familia} · {item.unidad}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {renderSection("Proteínas", rowsBySection.proteinas, "Agrega carnes, pollo, pescado, huevo u otras proteínas desde el buscador.")}
+        {renderSection("Secos y fruver", rowsBySection.secos, "Agrega secos, fruver y demás insumos desde el buscador.")}
+
+        <div className="req-summary-grid">
+          {totals.lineTotals.map((line) => (
+            <div className="metric-card" key={line.key}>
+              <span>{line.label}</span>
+              <strong>{money(line.total)}</strong>
+              <small>{line.centroCosto}</small>
+            </div>
+          ))}
+        </div>
+
+        <textarea className="req-global-notes" value={draft.observaciones || ""} onChange={(e) => updateDraft({ observaciones: e.target.value })} placeholder="Observaciones generales para bodega..." />
+
+        <div className="req-actions">
+          <button className="std-action-button" type="button" onClick={() => save("Borrador")}><Save size={14} /> Guardar borrador</button>
+          <button className="std-action-button primary" type="button" style={{ background: primary }} onClick={() => save("Enviada")}><Send size={14} /> Enviar requisición</button>
+          <button className="std-action-button" type="button" onClick={descargar}><Download size={14} /> Descargar</button>
+          <button className="std-action-button success" type="button" onClick={whatsapp}><Send size={14} /> WhatsApp</button>
+          <button className="std-action-button danger" type="button" onClick={() => deleteReq(draft.id)}><Trash2 size={14} /> Eliminar</button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 export default function EstandarizacionCocinaView({
   familias,
   insumos,
   recetas,
   preparaciones,
   mermas,
+  requisiciones,
   onFamilias,
   onInsumos,
   onRecetas,
   onPreparaciones,
   onMermas,
+  onRequisiciones,
   primary,
   accent,
   config,
   currentUser,
+  initialTab = "fichas",
 }) {
-  const [tab, setTab] = useState("fichas");
+  const [tab, setTab] = useState(initialTab);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   return (
     <div className="space-y-3">
@@ -230,6 +621,17 @@ export default function EstandarizacionCocinaView({
         />
       )}
       {tab === "insumos" && <InsumosView familias={familias} insumos={insumos} mermas={mermas} onFamilias={onFamilias} onInsumos={onInsumos} onMermas={onMermas} primary={primary} accent={accent} />}
+      {tab === "requisiciones" && (
+        <RequisicionesView
+          insumos={insumos}
+          requisiciones={requisiciones || []}
+          onRequisiciones={onRequisiciones}
+          primary={primary}
+          accent={accent}
+          config={config}
+          currentUser={currentUser}
+        />
+      )}
       {tab === "preparaciones" && <PreparacionesView preparaciones={preparaciones} onPreparaciones={onPreparaciones} primary={primary} />}
       {tab === "merma" && <MermaView insumos={insumos} mermas={mermas} onMermas={onMermas} primary={primary} accent={accent} />}
     </div>
@@ -551,11 +953,30 @@ function InsumosView({ familias, insumos, mermas, onFamilias, onInsumos, onMerma
   const [query, setQuery] = useState("");
   const [showFamilias, setShowFamilias] = useState(false);
   const [newFamilia, setNewFamilia] = useState({ nombre: "", prefijo: "" });
-  const [newInsumo, setNewInsumo] = useState({ id: "", nombre: "", familia: familias[0]?.nombre || "General", unidad: "", presentacion: "", valorCompra: "", mermaPct: 0 });
   const [mermaFor, setMermaFor] = useState(null);
   const [mermaForm, setMermaForm] = useState({ fecha: new Date().toISOString().slice(0, 10), teorica: "", real: "" });
-  const familiaOptions = familias.length ? familias : [{ id: "general", nombre: "General", prefijo: "GEN" }];
+  const familiaOptions = useMemo(() => familias.length ? familias : [{ id: "general", nombre: "General", prefijo: "GEN" }], [familias]);
+  const initialFamily = familiaOptions[0]?.nombre || "General";
+  const [newInsumo, setNewInsumo] = useState({
+    id: nextInsumoCode(initialFamily, familiaOptions, insumos),
+    nombre: "",
+    familia: initialFamily,
+    unidad: "",
+    presentacion: "",
+    valorCompra: "",
+    mermaPct: 0,
+  });
   const filtered = insumos.filter((item) => `${item.id} ${item.nombre} ${item.familia}`.toLowerCase().includes(query.toLowerCase()));
+  const proposedCode = nextInsumoCode(newInsumo.familia, familiaOptions, insumos);
+  const duplicateCode = insumos.some((item) => String(item.id || "").toUpperCase() === String(newInsumo.id || "").trim().toUpperCase());
+
+  useEffect(() => {
+    if (!familiaOptions.some((familia) => familia.nombre === newInsumo.familia)) {
+      const familia = familiaOptions[0]?.nombre || "General";
+      setNewInsumo((current) => ({ ...current, familia, id: nextInsumoCode(familia, familiaOptions, insumos) }));
+    }
+  }, [familiaOptions, insumos, newInsumo.familia]);
+
   const update = (id, patch) => {
     onInsumos(insumos.map((item) => {
       if (item.id !== id) return item;
@@ -565,13 +986,22 @@ function InsumosView({ familias, insumos, mermas, onFamilias, onInsumos, onMerma
       return { ...next, costoUnitario, costoReal: merma < 1 ? costoUnitario / (1 - merma) : costoUnitario };
     }));
   };
-  const canAdd = newInsumo.id.trim() && newInsumo.nombre.trim() && newInsumo.familia && newInsumo.unidad.trim() && Number(newInsumo.presentacion) > 0 && Number(newInsumo.valorCompra) > 0;
+  const canAdd = newInsumo.id.trim() && !duplicateCode && newInsumo.nombre.trim() && newInsumo.familia && newInsumo.unidad.trim() && Number(newInsumo.presentacion) > 0 && Number(newInsumo.valorCompra) > 0;
   const add = () => {
     if (!canAdd) return;
     const costoUnitario = Number(newInsumo.valorCompra) / Number(newInsumo.presentacion);
     const merma = Number(newInsumo.mermaPct || 0);
-    onInsumos([{ ...newInsumo, id: newInsumo.id.trim().toUpperCase(), nombre: newInsumo.nombre.trim(), costoUnitario, costoReal: merma < 1 ? costoUnitario / (1 - merma) : costoUnitario, activo: true }, ...insumos]);
-    setNewInsumo({ id: "", nombre: "", familia: familiaOptions[0]?.nombre || "General", unidad: "", presentacion: "", valorCompra: "", mermaPct: 0 });
+    const nextList = [{ ...newInsumo, id: newInsumo.id.trim().toUpperCase(), nombre: newInsumo.nombre.trim(), costoUnitario, costoReal: merma < 1 ? costoUnitario / (1 - merma) : costoUnitario, activo: true }, ...insumos];
+    onInsumos(nextList);
+    setNewInsumo({
+      id: nextInsumoCode(newInsumo.familia, familiaOptions, nextList),
+      nombre: "",
+      familia: newInsumo.familia,
+      unidad: "",
+      presentacion: "",
+      valorCompra: "",
+      mermaPct: 0,
+    });
   };
   const saveMerma = () => {
     const insumo = insumos.find((item) => item.id === mermaFor);
@@ -593,14 +1023,16 @@ function InsumosView({ familias, insumos, mermas, onFamilias, onInsumos, onMerma
     const nextNombre = patch.nombre ?? current.nombre;
     const cleanNombre = String(nextNombre || "").trim();
     if (!cleanNombre) return;
-    onFamilias(familias.map((familia) => {
+    const nextFamilias = familias.map((familia) => {
       if (familia.id !== id) return familia;
       const prefijo = patch.prefijo ?? familia.prefijo ?? cleanNombre.slice(0, 3).toUpperCase();
       return { ...familia, ...patch, nombre: cleanNombre, prefijo: String(prefijo || "").toUpperCase() };
-    }));
+    });
+    onFamilias(nextFamilias);
     if (cleanNombre !== current.nombre) {
-      onInsumos(insumos.map((item) => item.familia === current.nombre ? { ...item, familia: cleanNombre } : item));
-      if (newInsumo.familia === current.nombre) setNewInsumo({ ...newInsumo, familia: cleanNombre });
+      const nextInsumos = insumos.map((item) => item.familia === current.nombre ? { ...item, familia: cleanNombre } : item);
+      onInsumos(nextInsumos);
+      if (newInsumo.familia === current.nombre) setNewInsumo({ ...newInsumo, familia: cleanNombre, id: nextInsumoCode(cleanNombre, nextFamilias, nextInsumos) });
     }
   };
   const deleteFamilia = (familia) => {
@@ -645,15 +1077,24 @@ function InsumosView({ familias, insumos, mermas, onFamilias, onInsumos, onMerma
         )}
 
         <div className="std-insumo-create">
-          <input value={newInsumo.id} onChange={(e) => setNewInsumo({ ...newInsumo, id: e.target.value })} placeholder="Código" />
+          <input value={newInsumo.id || proposedCode} readOnly title="Código automático según familia" placeholder="Código automático" />
           <input value={newInsumo.nombre} onChange={(e) => setNewInsumo({ ...newInsumo, nombre: e.target.value })} placeholder="Nombre del insumo" />
-          <select value={newInsumo.familia} onChange={(e) => setNewInsumo({ ...newInsumo, familia: e.target.value })}>{familiaOptions.map((f) => <option key={f.id}>{f.nombre}</option>)}</select>
+          <select
+            value={newInsumo.familia}
+            onChange={(e) => {
+              const familia = e.target.value;
+              setNewInsumo({ ...newInsumo, familia, id: nextInsumoCode(familia, familiaOptions, insumos) });
+            }}
+          >
+            {familiaOptions.map((f) => <option key={f.id}>{f.nombre}</option>)}
+          </select>
           <input value={newInsumo.unidad} onChange={(e) => setNewInsumo({ ...newInsumo, unidad: e.target.value })} placeholder="Unidad" />
           <input type="number" value={newInsumo.presentacion} onChange={(e) => setNewInsumo({ ...newInsumo, presentacion: e.target.value })} placeholder="Present." />
           <input type="number" value={newInsumo.valorCompra} onChange={(e) => setNewInsumo({ ...newInsumo, valorCompra: e.target.value })} placeholder="Compra" />
           <input type="number" step="0.01" value={newInsumo.mermaPct} onChange={(e) => setNewInsumo({ ...newInsumo, mermaPct: e.target.value })} placeholder="Merma" />
           <button onClick={add} disabled={!canAdd} className="std-action-button primary" style={{ background: primary }}><Plus size={15} /> Crear</button>
         </div>
+        {duplicateCode && <p className="std-inline-warning">El código {newInsumo.id} ya existe. Cambia la familia o revisa el prefijo en Familias.</p>}
       </div>
 
       {mermaFor && (
